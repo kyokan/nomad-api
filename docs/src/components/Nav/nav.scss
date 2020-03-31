@@ -1,0 +1,115 @@
+@import "../../variable";
+
+.nav {
+  @extend %col-nowrap;
+  flex: 0 0 auto;
+  width: 20rem;
+  border-right: 1px solid $border-gray;
+  user-select: none;
+
+  &--desktop {
+    @media only screen and (max-width: 768px) {
+      display: none;
+    }
+  }
+
+  &--mobile {
+    border-top: 1px solid $border-gray;
+  }
+}
+
+.nav-group {
+  @extend %col-nowrap;
+
+
+  &__title {
+    position: relative;
+    font-size: 1rem;
+    line-height: 1.3125;
+    padding: .5rem 1rem;
+    margin: .5rem;
+    margin-bottom: 0;
+    cursor: pointer;
+    transition:
+            background-color 150ms ease-in-out,
+            color 150ms ease-in-out;
+
+    &:hover {
+      //background-color: rgba($primary-purple, .05);
+      //color: $primary-purple;
+
+      &:after {
+        border-left: .375rem solid rgba(#000, .5);
+      }
+    }
+
+
+    &:after {
+      position: absolute;
+      top: .75rem;
+      right: .75rem;
+      display: block;
+      content: "";
+      width: 0;
+      height: 0;
+      border-top: .375rem solid transparent;
+      border-bottom: .375rem solid transparent;
+      border-left: .375rem solid rgba(#000, .3);
+      border-right: 0;
+      transform: rotate(0deg);
+      transition:
+              transform 150ms ease-in-out,
+              border-left-color 150ms ease-in-out;
+    }
+
+  }
+
+
+
+  &__children {
+
+  }
+
+  &--expanded {
+    .nav-group {
+      &__title {
+        &:after {
+          transform: rotate(90deg);
+        }
+      }
+    }
+  }
+}
+
+.nav-item {
+  @extend %col-nowrap;
+  outline: none;
+
+  &__title {
+    color: #a9a9a9;
+    font-weight: 600;
+    position: relative;
+    font-size: .875rem;
+    line-height: 1.3125;
+    padding: .375rem 1rem;
+    margin: .25rem .75rem .25rem 1.5rem;
+    cursor: pointer;
+    transition:
+            background-color 150ms ease-in-out,
+            color 150ms ease-in-out;
+
+    &:hover {
+      background-color: rgba($primary-purple, .05);
+      color: lighten($primary-purple, 10);
+    }
+  }
+
+  &--selected {
+    .nav-item {
+      &__title {
+        background-color: rgba($primary-purple, .05);
+        color: lighten($primary-purple, 10);
+      }
+    }
+  }
+}

@@ -1,0 +1,27 @@
+@import url('https://fonts.googleapis.com/css2?family=Jura:wght@700&family=Open+Sans:wght@400;600;700;800&family=Roboto+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/icon?family=Material+Icons');
+
+$header-inactive-gray: #F6F6F6;
+$menu-bg-gray: #EFEFEF;
+$menu-border-gray: #DFDFDF;
+//$menu-btn-border: #c9c9c9;
+//$dark-border-gray: #B2B2B2;
+//$header-inactive-text: #acacac;
+$light-text-gray: #999999;
+$preview-bg-gray: #868686;
+$rte-bg-gray: #272822;
+//$dark-text-gray: #252525;
+//$pure-black: #000;
+$highlight-blue: #7937AC;
+$primary-purple: #7937AC;
+$border-gray: #e6e6e6;
+
+%col-nowrap {
+  display: flex;
+  flex-flow: column nowrap;
+}
+
+%row-nowrap {
+  display: flex;
+  flex-flow: row nowrap;
+}

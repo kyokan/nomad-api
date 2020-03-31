@@ -1,0 +1,12 @@
+{
+  "handshakeRPCHost": "http://127.0.0.1",
+  "handshakeRPCKey": "",
+  "heartbeartUrl": "",
+  "moniker": "Nomad API",
+  "matomoAPI": "",
+  "baseIP": "",
+  "tokenAuth": "",
+  "handshakeBasePath": "",
+  "handshakePort": "",
+  "signers": {}
+}
