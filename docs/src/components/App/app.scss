@@ -5,6 +5,10 @@ html {
   font-family: "Open Sans", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  @media only screen and (max-width: 768px) {
+    font-size: 14px;
+  }
 }
 
 body {
@@ -19,28 +23,42 @@ body {
 
   &__header {
     @extend %row-nowrap;
+    background-color: #fff;
     flex: 0 0 auto;
     border-bottom: 1px solid $border-gray;
     user-select: none;
 
     &__title {
       @extend %row-nowrap;
+      font-size: 18px;
       align-items: center;
       flex: 0 0 auto;
-      padding: 0 .75rem;
+      padding: .75rem 0;
+
+      &__hamburger {
+        font-size: 1.5rem;
+        font-family: "Material Icons", sans-serif;
+        padding-left: .75rem;
+
+        @media only screen and (min-width: 769px) {
+          display: none;
+        }
+      }
 
       &__logo {
-        width: 1.3125rem;
-        height: 1.3125rem;
+        flex: 0 0 auto;
+        width: 24px;
+        height: 24px;
         background-size: cover;
         background-position: center;
+        margin-left: .75rem;
       }
 
       &__text {
         font-size: 1rem;
         line-height: 1.3125;
         font-weight: 600;
-        padding: .75rem;
+        padding: 0 .75rem;
       }
     }
 
@@ -63,13 +81,77 @@ body {
           color: $primary-purple;
         }
       }
+
+      @media only screen and (max-width: 768px) {
+        display: none;
+      }
     }
   }
 
   &__content {
     @extend %row-nowrap;
+    background-color: #fff;
     flex: 1 1 auto;
     height: 0;
+
+    &__mobile-nav {
+      @extend %row-nowrap;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: -100;
+
+      &__body {
+        @extend %col-nowrap;
+        position: relative;
+        background-color: #fff;
+        overflow-x: hidden;
+        transform: translateX(-100vw);
+        transition: transform 150ms ease-in-out;
+        z-index: 300;
+
+        .app__header__title {
+          background-color: #fff;
+          position: relative;
+          z-index: 200;
+        }
+
+        .nav {
+          flex: 1 1 auto;
+          overflow-y: auto;
+          overflow-x: hidden;
+        }
+      }
+
+      &__overlay {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        top: 0;
+        left: 0;
+        opacity: 0;
+        background-color: rgba(#000, .8);
+        transition: opacity 150ms ease-in-out;
+      }
+
+      &--opened {
+        z-index: 100;
+        .app__content__mobile-nav__body {
+          max-width: 100vw;
+          transform: translateX(0);
+        }
+
+        .app__content__mobile-nav__overlay {
+          opacity: 1;
+        }
+      }
+
+      @media only screen and (min-width: 769px) {
+        display: none;
+      }
+    }
 
     &__body {
       flex: 1 1 auto;
@@ -77,6 +159,10 @@ body {
       overflow-y: auto;
       max-width: 72rem;
       margin: 0 auto;
+
+      @media only screen and (max-width: 768px) {
+        padding: .5rem 1rem 6rem 1rem;
+      }
     }
   }
 }

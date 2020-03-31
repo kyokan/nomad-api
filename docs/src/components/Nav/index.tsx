@@ -1,9 +1,9 @@
 import React, {MouseEventHandler, ReactElement, ReactNode, useCallback, useState} from "react";
 import "./nav.scss";
 
-export function Nav(props: {children: ReactNode}): ReactElement {
+export function Nav(props: {children: ReactNode; className?: string}): ReactElement {
   return (
-    <div className="nav">
+    <div className={`nav ${props.className || ''}`}>
       {props.children}
     </div>
   )

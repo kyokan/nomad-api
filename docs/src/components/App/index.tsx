@@ -1,4 +1,4 @@
-import React, {ReactElement} from "react";
+import React, {ReactElement, ReactNode, useState} from "react";
 import {Redirect, Route, RouteComponentProps, Switch, withRouter} from "react-router";
 // @ts-ignore
 import Logo from "../../../static/logo-purple.svg";
@@ -36,10 +36,18 @@ function App(props: RouteComponentProps): ReactElement {
     history: { push },
   } = props;
 
+  const [isOpen, setOpen] = useState(false);
+
   return (
     <div className="app">
       <div className="app__header">
         <div className="app__header__title">
+          <div
+            className="app__header__title__hamburger"
+            onClick={() => setOpen(true)}
+          >
+            menu
+          </div>
           <div className="app__header__title__logo" style={{ backgroundImage: `url(${Logo})`}} />
           <div className="app__header__title__text">
             Nomad API
@@ -71,94 +79,22 @@ function App(props: RouteComponentProps): ReactElement {
         </div>
       </div>
       <div className="app__content">
-        <Nav>
-          <NavGroup
-            title="Introduction"
-          >
-            <NavItem
-              selected={/introduction\/getting_started/.test(pathname)}
-              title="Getting Started"
-              onClick={() => {
-                push('/docs/introduction/getting_started')
-              }}
-            />
-          </NavGroup>
-          <NavGroup
-            title="API"
-          >
-            <NavItem
-              selected={"/docs/api/get_posts" === pathname}
-              title="GET /posts"
-              onClick={() => {
-                push('/docs/api/get_posts')
-              }}
-            />
-            <NavItem
-              selected={/api\/get_post_by_refhash/.test(pathname)}
-              title="GET /posts/:refhash"
-              onClick={() => {
-                push('/docs/api/get_post_by_refhash')
-              }}
-            />
-            <NavItem
-              selected={/api\/get_comments_by_parent_hash/.test(pathname)}
-              title="GET /posts/:refhash/comments"
-              onClick={() => {
-                push('/docs/api/get_comments_by_parent_hash')
-              }}
-            />
-            <NavItem
-              selected={/api\/get_user_profile/.test(pathname)}
-              title="GET /users/:username/profile"
-              onClick={() => {
-                push('/docs/api/get_user_profile')
-              }}
-            />
-            <NavItem
-              selected={/api\/get_user_timeline/.test(pathname)}
-              title="GET /users/:username/timeline"
-              onClick={() => {
-                push('/docs/api/get_user_timeline')
-              }}
-            />
-            <NavItem
-              selected={/api\/get_user_likes/.test(pathname)}
-              title="GET /users/:username/likes"
-              onClick={() => {
-                push('/docs/api/get_user_likes')
-              }}
-            />
-            <NavItem
-              selected={/api\/get_user_comments/.test(pathname)}
-              title="GET /users/:username/comments"
-              onClick={() => {
-                push('/docs/api/get_user_comments')
-              }}
-            />
-            <NavItem
-              selected={/api\/get_user_followees/.test(pathname)}
-              title="GET /users/:username/followees"
-              onClick={() => {
-                push('/docs/api/get_user_followees')
-              }}
-            />
-            <NavItem
-              selected={/api\/get_user_blockees/.test(pathname)}
-              title="GET /users/:username/blockees"
-              onClick={() => {
-                push('/docs/api/get_user_blockees')
-              }}
-            />
-
-            <NavItem
-              selected={/api\/get_posts_by_filter/.test(pathname)}
-              title="POST /filter"
-              onClick={() => {
-                push('/docs/api/get_posts_by_filter')
-              }}
-            />
-          </NavGroup>
-        </Nav>
+        {renderNav(props, 'nav--desktop')}
+        <div className={`app__content__mobile-nav ${isOpen ? 'app__content__mobile-nav--opened' : ''}`}>
+          <div className="app__content__mobile-nav__body">
+            <div className="app__header__title">
+              <div className="app__header__title__logo" style={{ backgroundImage: `url(${Logo})`}} />
+              <div className="app__header__title__text">
+                Nomad API
+              </div>
+            </div>
+            {renderNav(props, 'nav--mobile')}
+          </div>
+          <div
+            className="app__content__mobile-nav__overlay"
+            onClick={() => setOpen(false)}
+          />
+        </div>
         <div className="app__content__body">
           <Switch>
             <Route path="/docs/introduction/getting_started">
@@ -208,3 +144,102 @@ function App(props: RouteComponentProps): ReactElement {
 }
 
 export default withRouter(App);
+
+
+function renderNav(props: RouteComponentProps, className: string): ReactNode {
+  const {
+    location: { pathname },
+    history: { push },
+  } = props;
+
+  return (
+    <Nav className={className}>
+      <NavGroup
+        title="Introduction"
+      >
+        <NavItem
+          selected={/introduction\/getting_started/.test(pathname)}
+          title="Getting Started"
+          onClick={() => {
+            push('/docs/introduction/getting_started')
+          }}
+        />
+      </NavGroup>
+      <NavGroup
+        title="API"
+      >
+        <NavItem
+          selected={"/docs/api/get_posts" === pathname}
+          title="GET /posts"
+          onClick={() => {
+            push('/docs/api/get_posts')
+          }}
+        />
+        <NavItem
+          selected={/api\/get_post_by_refhash/.test(pathname)}
+          title="GET /posts/:refhash"
+          onClick={() => {
+            push('/docs/api/get_post_by_refhash')
+          }}
+        />
+        <NavItem
+          selected={/api\/get_comments_by_parent_hash/.test(pathname)}
+          title="GET /posts/:refhash/comments"
+          onClick={() => {
+            push('/docs/api/get_comments_by_parent_hash')
+          }}
+        />
+        <NavItem
+          selected={/api\/get_user_profile/.test(pathname)}
+          title="GET /users/:username/profile"
+          onClick={() => {
+            push('/docs/api/get_user_profile')
+          }}
+        />
+        <NavItem
+          selected={/api\/get_user_timeline/.test(pathname)}
+          title="GET /users/:username/timeline"
+          onClick={() => {
+            push('/docs/api/get_user_timeline')
+          }}
+        />
+        <NavItem
+          selected={/api\/get_user_likes/.test(pathname)}
+          title="GET /users/:username/likes"
+          onClick={() => {
+            push('/docs/api/get_user_likes')
+          }}
+        />
+        <NavItem
+          selected={/api\/get_user_comments/.test(pathname)}
+          title="GET /users/:username/comments"
+          onClick={() => {
+            push('/docs/api/get_user_comments')
+          }}
+        />
+        <NavItem
+          selected={/api\/get_user_followees/.test(pathname)}
+          title="GET /users/:username/followees"
+          onClick={() => {
+            push('/docs/api/get_user_followees')
+          }}
+        />
+        <NavItem
+          selected={/api\/get_user_blockees/.test(pathname)}
+          title="GET /users/:username/blockees"
+          onClick={() => {
+            push('/docs/api/get_user_blockees')
+          }}
+        />
+
+        <NavItem
+          selected={/api\/get_posts_by_filter/.test(pathname)}
+          title="POST /filter"
+          onClick={() => {
+            push('/docs/api/get_posts_by_filter')
+          }}
+        />
+      </NavGroup>
+    </Nav>
+  );
+}

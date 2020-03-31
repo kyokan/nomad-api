@@ -6,6 +6,16 @@
   width: 20rem;
   border-right: 1px solid $border-gray;
   user-select: none;
+
+  &--desktop {
+    @media only screen and (max-width: 768px) {
+      display: none;
+    }
+  }
+
+  &--mobile {
+    border-top: 1px solid $border-gray;
+  }
 }
 
 .nav-group {

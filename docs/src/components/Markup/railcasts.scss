@@ -111,7 +111,7 @@
 
 .marked {
   font-size: .9375rem;
-  line-height: 1.5;
+  line-height: 1.625;
   color: #1e1e1e;
 
   pre {
@@ -138,6 +138,7 @@
     margin: 1rem 0;
   }
 
+  h1:nth-of-type(1),
   p:nth-of-type(1) {
     margin-top: .5rem;
   }
