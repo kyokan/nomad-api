@@ -83,9 +83,13 @@ export class IndexerManager {
 
   handlers = {
     '/posts': async (req: Request, res: Response) => {
-     const { order, offset, limit } = req.query || {};
-     const posts = await this.getPosts(order, limit, offset);
-     res.send(makeResponse(posts));
+      try {
+        const { order, offset, limit } = req.query || {};
+        const posts = await this.getPosts(order, limit, offset);
+        res.send(makeResponse(posts));
+      } catch (e) {
+        res.status(500).send(makeResponse(e.message, true));
+      }
     },
 
     '/posts/:hash': async (req: Request, res: Response) =>  {

@@ -1,12 +1,12 @@
-## Getting Started
+# Getting Started
 
 **Nomad API** provides a RESTful interface for developers to query social contents from Nomad, a peer-to-peer, ownerless social network built on top of [Handshake](https://handshake.org/) and [DDRP](https://ddrp.network/).
 
-## Install
+### Install
 
-`nomad-api` requires Node.js v11.14 or higher
+`nomad-api` requires Node.js v11.14 or higher  
 
-## Step 1: Build from Repository
+### Step 1: Build from Repository
 
 ```
 git clone https://github.com/kyokan/nomad-api.git
@@ -14,7 +14,7 @@ cd nomad-api
 npm install
 ```
 
-## Step 2: config.json
+### Step 2: config.json
 
 `nomad-api` uses `./config.json` as base configuration for DDRP. You can find the sample config at `./config.sample.json`.
 
@@ -23,7 +23,7 @@ npm install
 cp ./config.sample.json ./config.json
 ```
 
-## Step 3: Run HSD locally (if necessary)
+### Step 3: Run HSD locally (if necessary)
 
 If you are using a hosted Handshake RPC Host, you can skip this step.
 
@@ -36,13 +36,15 @@ hsd --index-tx
 
 *Please refer to [hsd](https://github.com/handshake-org/hsd) for more detail*
 
-## Step 4: Run Nomad API
+### Step 4: Run Nomad API  
 
 **Running in production**
+
 `SERVICE_KEY` enables the `/services` endpoints for privileged remote access.
 ```
 SERVICE_KEY=secret-key npm start
 ```
+
 
 **Running in development**
 ```

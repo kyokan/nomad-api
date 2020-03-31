@@ -27,7 +27,7 @@ body {
       @extend %row-nowrap;
       align-items: center;
       flex: 0 0 auto;
-      padding: 0 .5rem;
+      padding: 0 .75rem;
 
       &__logo {
         width: 1.3125rem;
@@ -40,7 +40,7 @@ body {
         font-size: 1rem;
         line-height: 1.3125;
         font-weight: 600;
-        padding: .5rem;
+        padding: .75rem;
       }
     }
 
@@ -49,6 +49,7 @@ body {
       justify-content: flex-end;
       align-items: center;
       flex: 1 1 auto;
+      overflow-y: auto;
 
       &__item {
         font-size: .875rem;
@@ -68,12 +69,14 @@ body {
   &__content {
     @extend %row-nowrap;
     flex: 1 1 auto;
+    height: 0;
 
-    &__nav {
+    &__body {
       flex: 1 1 auto;
-      max-width: 20rem;
-      min-width: 18rem;
-      border-right: 1px solid $border-gray;
+      padding: .5rem 2rem 6rem 2rem;
+      overflow-y: auto;
+      max-width: 72rem;
+      margin: 0 auto;
     }
   }
 }

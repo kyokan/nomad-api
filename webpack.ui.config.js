@@ -55,6 +55,10 @@ const rendererRules = [
       'sass-loader',
     ],
   },
+  {
+    test: /\.md$/i,
+    use: 'raw-loader',
+  },
 ];
 
 module.exports = [
