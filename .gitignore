@@ -1,5 +1,6 @@
 node_modules/
 build/
+build-doc/
 .idea/
 resources/ddrpd-*
 **/**/.DS_Store
