@@ -15,7 +15,7 @@ type NavGroupProps = {
 }
 
 export function NavGroup(props: NavGroupProps): ReactElement {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const toggle = useCallback(() => setExpanded(!expanded), [expanded]);
 
   return (

@@ -10,7 +10,7 @@ const devServerEntries = [
   'webpack/hot/only-dev-server',
 ];
 
-const envPlugin = new webpack.EnvironmentPlugin(['NODE_ENV', 'RELAYER_API', 'INDEXER_API']);
+const envPlugin = new webpack.EnvironmentPlugin(['NODE_ENV']);
 
 const rules = [
   {
@@ -83,8 +83,8 @@ module.exports = [
     },
     output: {
       path: __dirname + '/build-doc',
-      publicPath: isProd ? '/' : 'http://localhost:8083/',
-      filename: `docs.js`,
+      publicPath: isProd ? '/docs/' : 'http://localhost:8083/',
+      filename: `doc-ui.js`,
     },
     plugins: [
       envPlugin,
