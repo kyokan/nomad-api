@@ -19,7 +19,7 @@ export const serializeUsername = (subdomain: string | null, tld: string): string
 };
 
 export const parseUsername = (username: string): { tld: string; subdomain: string | null } => {
-  const splits = undotName(username).split('@');
+  const splits = username.replace('@', '').split('.');
 
   if (splits.length === 1) {
     return {
@@ -28,9 +28,16 @@ export const parseUsername = (username: string): { tld: string; subdomain: strin
     };
   }
 
+  if (splits.length === 2) {
+    return {
+      tld: splits[1],
+      subdomain: splits[0],
+    };
+  }
+
   return {
-    tld: splits[1],
-    subdomain: splits[0],
+    tld: '',
+    subdomain: null,
   };
 };
 

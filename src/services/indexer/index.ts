@@ -35,7 +35,7 @@ import Gridy from '@dicebear/avatars-gridy-sprites';
 import Avataaars from '@dicebear/avatars-avataaars-sprites';
 import Bottts from '@dicebear/avatars-bottts-sprites';
 import Jdenticon from '@dicebear/avatars-jdenticon-sprites';
-import {dotName, isSubdomain, parseUsername} from "../../util/user";
+import {dotName, isSubdomain, parseUsername, serializeUsername} from "../../util/user";
 import {extendFilter} from "../../util/filter";
 const appDataPath = './build';
 const dbPath = path.join(appDataPath, 'nomad.db');
@@ -125,8 +125,9 @@ export class IndexerManager {
 
     '/users/:username/likes': async (req: Request, res: Response) => {
       const { order, offset } = req.query || {};
+      const {tld, subdomain} = parseUsername(req.params.username);
       const filter = extendFilter({
-        likedBy: [req.params.username],
+        likedBy: [serializeUsername(subdomain, tld)],
         allowedTags: ['*'],
       });
       const posts = await this.getPostsByFilter(filter, order, offset);
@@ -244,22 +245,27 @@ export class IndexerManager {
   };
 
   getUserTimeline = async (username: string, order: 'ASC' | 'DESC' = 'ASC', start = 0): Promise<Pageable<PostWithMeta, number>> => {
-    return await this.postsDao!.getPostsByFilter(extendFilter({
-      postedBy: [username],
+    const { tld, subdomain } = parseUsername(username);
+
+    return await this.getPostsByFilter(extendFilter({
+      postedBy: [serializeUsername(subdomain, tld)],
       allowedTags: ['*'],
     }), order, start);
   };
 
   getUserLikes = async (username: string, order?: 'ASC' | 'DESC', start?: number): Promise<Pageable<PostWithMeta, number>> => {
-    return await this.postsDao!.getPostsByFilter(extendFilter({
-      likedBy: [username],
+    const { tld, subdomain } = parseUsername(username);
+
+    return await this.getPostsByFilter(extendFilter({
+      likedBy: [serializeUsername(subdomain, tld)],
       allowedTags: ['*'],
     }), order, start);
   };
 
   getUserReplies = async (username: string, order: 'ASC' | 'DESC' = 'ASC', start = 0): Promise<Pageable<PostWithMeta, number>> => {
-    return await this.postsDao!.getPostsByFilter(extendFilter({
-      repliedBy: [username],
+    const { tld, subdomain } = parseUsername(username);
+    return await this.getPostsByFilter(extendFilter({
+      repliedBy: [serializeUsername(subdomain, tld)],
       allowedTags: ['*'],
     }), order, start);
   };
@@ -269,7 +275,7 @@ export class IndexerManager {
   };
 
   getPostsByFilter = async (filter: Filter, order?: 'ASC' | 'DESC', start?: number): Promise<Pageable<PostWithMeta, number>> => {
-    return await this.postsDao!.getPostsByFilterV2(filter, order, Number(start));
+    return await this.postsDao!.getPostsByFilterV2(filter, order, start);
   };
 
   getCommentsByHash = async (parent: string | null, order?: 'ASC' | 'DESC', start?: number): Promise<Pageable<PostWithMeta, number>> => {

@@ -31,10 +31,10 @@ export class DDRPManager {
   async initDDRP () {
     const exists = await this.ddrpDirExists();
 
-    this.setAPIKey(config.handshakeRPCKey);
-    this.setHost(config.handshakeRPCHost);
-    this.setMoniker(config.moniker);
-    this.setHeartbeat(config.heartbeartUrl);
+    await this.setAPIKey(config.handshakeRPCKey);
+    await this.setHost(config.handshakeRPCHost);
+    await this.setMoniker(config.moniker);
+    await this.setHeartbeat(config.heartbeartUrl);
 
     if (exists) {
       return;
