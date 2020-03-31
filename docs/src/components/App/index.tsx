@@ -10,6 +10,10 @@ import GettingStartedMD from "../../../static/getting_started.md";
 // @ts-ignore
 import GetPostsMD from "../../../static/get_posts.md";
 // @ts-ignore
+import GetPostMD from "../../../static/get_post.md";
+// @ts-ignore
+import GetCommentsMD from "../../../static/get_comment_by_parent_hash.md";
+// @ts-ignore
 import GetUserTimelineMD from "../../../static/get_user_timeline.md";
 // @ts-ignore
 import GetUserLikesMD from "../../../static/get_user_likes.md";
@@ -19,6 +23,8 @@ import GetUserFolloweeMD from "../../../static/get_user_followees.md";
 import GetUserBlockeeMD from "../../../static/get_user_blockees.md";
 // @ts-ignore
 import GetUserCommentsMD from "../../../static/get_user_comments.md";
+// @ts-ignore
+import GetUserProfileMD from "../../../static/get_user_profile.md";
 
 function App(props: RouteComponentProps): ReactElement {
   const {
@@ -84,6 +90,20 @@ function App(props: RouteComponentProps): ReactElement {
               }}
             />
             <NavItem
+              selected={/api\/get_post_by_refhash/.test(pathname)}
+              title="GET /posts/:refhash"
+              onClick={() => {
+                push('/api/get_post_by_refhash')
+              }}
+            />
+            <NavItem
+              selected={/api\/get_comments_by_parent_hash/.test(pathname)}
+              title="GET /posts/:refhash/comments"
+              onClick={() => {
+                push('/api/get_comments_by_parent_hash')
+              }}
+            />
+            <NavItem
               selected={/api\/get_user_timeline/.test(pathname)}
               title="GET /users/:username/timeline"
               onClick={() => {
@@ -118,6 +138,13 @@ function App(props: RouteComponentProps): ReactElement {
                 push('/api/get_user_blockees')
               }}
             />
+            <NavItem
+              selected={/api\/get_user_profile/.test(pathname)}
+              title="GET /users/:username/profile"
+              onClick={() => {
+                push('/api/get_user_profile')
+              }}
+            />
           </NavGroup>
         </Nav>
         <div className="app__content__body">
@@ -127,6 +154,15 @@ function App(props: RouteComponentProps): ReactElement {
             </Route>
             <Route path="/api/get_posts">
               <Markup content={GetPostsMD} />
+            </Route>
+            <Route path="/api/get_post_by_refhash">
+              <Markup content={GetPostMD} />
+            </Route>
+            <Route path="/api/get_comments_by_parent_hash">
+              <Markup content={GetCommentsMD} />
+            </Route>
+            <Route path="/api/get_user_profile">
+              <Markup content={GetUserProfileMD} />
             </Route>
             <Route path="/api/get_user_timeline">
               <Markup content={GetUserTimelineMD} />

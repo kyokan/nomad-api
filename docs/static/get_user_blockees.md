@@ -5,6 +5,11 @@ Returns list of all users blocked by a user.
 ### Resource URL
 `https://api.nomadweb.io/users/:username/blockees`
 
+### Path Parameters
+| Name | Required | Description |
+|--|--|--|
+| username | Yes | Username of the user to be fetched (e.g. @jackychan) |
+
 ### Query Parameters
 | Name | Required | Description | Default |
 |--|--|--|--|

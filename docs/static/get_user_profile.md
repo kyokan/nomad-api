@@ -5,6 +5,11 @@ Returns user's profile info.
 ### Resource URL
 `https://api.nomadweb.io/users/:username/profile`
 
+### Path Parameters
+| Name | Required | Description |
+|--|--|--|
+| username | Yes | Username of the user to be fetched (e.g. @jackychan) |
+
 ### Sample Response
 
 ```typescript

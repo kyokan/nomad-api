@@ -5,6 +5,11 @@ Returns list of all posts liked by a user.
 ### Resource URL
 `https://api.nomadweb.io/users/:username/likes`
 
+### Path Parameters
+| Name | Required | Description |
+|--|--|--|
+| username | Yes | Username of the user to be fetched (e.g. @jackychan) |
+
 ### Query Parameters
 | Name | Required | Description | Default |
 |--|--|--|--|

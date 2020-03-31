@@ -1,14 +1,14 @@
-# GET /users/:username/comments
+# GET /posts/:refhash/comments
 
-Returns all replies made by a user.
+Returns replies of a given refhash.
 
 ### Resource URL
-`https://api.nomadweb.io/users/:username/comments`
+`https://api.nomadweb.io/posts/:refhash/comments`
 
 ### Path Parameters
 | Name | Required | Description |
 |--|--|--|
-| username | Yes | Username of the user to be fetched (e.g. @jackychan) |
+| refhash | Yes | Specify refhash of the post to be fetched |
 
 ### Query Parameters
 | Name | Required | Description | Default |
@@ -20,18 +20,18 @@ Returns all replies made by a user.
 ### Sample Response
 
 ```typescript
-// curl https://api.nomadweb.io/users/@4813/comments?order=DESC&limit=1
+// curl https://api.nomadweb.io/posts/e6c6bf61453010d1a3aee46200c022ce343c4791912ba89905ab016c3b60ed57/comments
 {
   "items": [
-    {
+    { 
       "post": {
-        "tld": "4813.",
-        "subdomain": null,
-        "guid": "834ff915b0b64151aee40fd581df63ab",
-        "timestamp": "2020-03-28T05:39:27.000Z",
-        "parent": "9b095edbf6ac030e61582bbd6cc0c2d1b548eac012b0f9030b3f1810c65311bb",
+        "tld": "9411.",
+        "subdomain": "whogonnastopme",
+        "guid": "4918d590c73e487e93fcc9bf54496cf4",
+        "timestamp": "2020-03-12T04:27:02.000Z",
+        "parent": "e6c6bf61453010d1a3aee46200c022ce343c4791912ba89905ab016c3b60ed57",
         "context": null,
-        "content": "yep verified\n",
+        "content": "true that\n",
         "topic": "",
         "tags": [
           
@@ -44,6 +44,6 @@ Returns all replies made by a user.
       }
     }
   ],
-  "next": null
+  "next": 1
 }
 ```
