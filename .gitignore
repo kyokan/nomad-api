@@ -1,0 +1,6 @@
+node_modules/
+build/
+.idea/
+resources/ddrpd-*
+**/**/.DS_Store
+config.json
