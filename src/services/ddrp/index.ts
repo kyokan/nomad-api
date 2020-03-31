@@ -31,11 +31,6 @@ export class DDRPManager {
   async initDDRP () {
     const exists = await this.ddrpDirExists();
 
-    await this.setAPIKey(config.handshakeRPCKey);
-    await this.setHost(config.handshakeRPCHost);
-    await this.setMoniker(config.moniker);
-    await this.setHeartbeat(config.heartbeartUrl);
-
     if (exists) {
       return;
     }
@@ -46,7 +41,7 @@ export class DDRPManager {
     // eslint-disable-next-line no-console
     console.log('copied binary');
     const cmd = path.join(appDataPath, 'ddrpd');
-    await new Promise((resolve, reject) => execFile(cmd, ['init', '--home', ddrpdHome], (err, stdout, stderr) => {
+    await new Promise((resolve, reject) => execFile(cmd, ['init', '--home', ddrpdHome], async (err, stdout, stderr) => {
       if (err) {
         reject(err);
       }
@@ -54,6 +49,10 @@ export class DDRPManager {
       console.log('out', stdout);
       // eslint-disable-next-line no-console
       console.log('err', stderr);
+      await this.setAPIKey(config.handshakeRPCKey);
+      await this.setHost(config.handshakeRPCHost);
+      await this.setMoniker(config.moniker);
+      await this.setHeartbeat(config.heartbeartUrl);
       resolve();
     }));
   }
