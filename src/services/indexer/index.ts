@@ -229,7 +229,7 @@ export class IndexerManager {
 
 
   getTags = async (tags: string[], order: 'ASC' | 'DESC' = 'ASC', start = 0): Promise<Pageable<PostWithMeta, number>> => {
-    return await this.postsDao!.getPostsByFilter(extendFilter({
+    return await this.postsDao!.getPostsByFilterV2(extendFilter({
       allowedTags: tags,
     }), order, start);
   };
