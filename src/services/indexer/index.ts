@@ -501,8 +501,7 @@ export class IndexerManager {
     logger.info(`Streaming tld: ${tld}`);
 
     try {
-      const readStream = client.createReadStream();
-      source = new ReadableBlobStream(tld, readStream);
+      source = new ReadableBlobStream(tld, client);
 
       if (await isSubdomainBlob(source)) {
         const nameRecords = await readSubdomainRecords(source);
