@@ -1,9 +1,12 @@
 export const undotName = (name: string): string => {
-  return name.replace(/\./g, '');
+  const len = name.length;
+
+  if (name[len - 1] === '.') return name.slice(0, len - 1);
+  return name;
 };
 
 export const dotName = (name: string): string => {
-  return `${undotName(name)}.`;
+  return `${undotName(name)}`;
 };
 
 export const serializeUsername = (subdomain: string | null, tld: string): string => {
@@ -15,11 +18,11 @@ export const serializeUsername = (subdomain: string | null, tld: string): string
     return dotName(tld);
   }
 
-  return `${subdomain}@${dotName(tld)}`;
+  return `${subdomain}.${dotName(tld)}`;
 };
 
 export const parseUsername = (username: string): { tld: string; subdomain: string | null } => {
-  const splits = username.replace('@', '').split('.');
+  const splits = undotName(username).split('.');
 
   if (splits.length === 1) {
     return {

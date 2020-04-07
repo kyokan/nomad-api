@@ -45,16 +45,19 @@ export class DDRPManager {
       if (err) {
         reject(err);
       }
+
       // eslint-disable-next-line no-console
       console.log('out', stdout);
       // eslint-disable-next-line no-console
       console.log('err', stderr);
-      await this.setAPIKey(config.handshakeRPCKey);
-      await this.setHost(config.handshakeRPCHost);
-      await this.setMoniker(config.moniker);
-      await this.setHeartbeat(config.heartbeartUrl);
+
       resolve();
     }));
+
+    await this.setAPIKey(config.handshakeRPCKey);
+    await this.setHost(config.handshakeRPCHost);
+    await this.setMoniker(config.moniker);
+    await this.setHeartbeat(config.heartbeartUrl);
   }
 
   startDaemon = async () => {
@@ -82,10 +85,12 @@ export class DDRPManager {
         this.onNameSyncedCallback!(dotName(name));
       }
     });
+
     this.daemon.stdout!.on('data', (data) => {
       const log = data.toString('utf-8');
       logger.info(log);
     });
+
     await this.tryPort();
   };
 
