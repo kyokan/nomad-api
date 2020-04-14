@@ -3,7 +3,7 @@ import cors, {CorsOptions} from 'cors';
 import {makeResponse} from "../../util/rest";
 import logger from "../../util/logger";
 import fs from "fs";
-import {trackAttempt} from "../../util/matomo";
+const requestIp = require('request-ip');
 const port = 8082 || process.env.PORT;
 
 let docsHTML: string;
@@ -26,6 +26,7 @@ export class RestServer {
 
     this.app = express();
     this.app.use(cors(corsOptions));
+    this.app.use(requestIp.mw());
     this.app.use('/', express.static('./build'));
     this.app.use('/docs', express.static('./build-doc'));
     this.app.use(async (req, res, next) => {
