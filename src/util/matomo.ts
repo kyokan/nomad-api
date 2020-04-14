@@ -8,6 +8,7 @@ const matomo = new Matomo(3, config.matomoAPI);
 export function trackAttempt(namespace: string, req: Request, name?: string, v?: string) {
   try {
     if (!config.matomoAPI) return;
+
     matomo.track({
       url: `http://${config.baseIP || 'localhost'}:8082${req.url}`,
       urlref: `http://${req.hostname}:8082${req.url}`,
@@ -18,12 +19,9 @@ export function trackAttempt(namespace: string, req: Request, name?: string, v?:
       e_c: namespace,
       e_a: 'Attempt',
       e_n: name,
+      cip: req.ip,
     });
   } catch (e) {
     //
   }
 }
-
-
-
-
