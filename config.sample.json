@@ -4,5 +4,6 @@
   "heartbeartUrl": "https://www.ddrpscan.com/heartbeat",
   "moniker": "Nomad API",
   "matomoAPI": "",
-  "baseIP": ""
+  "baseIP": "",
+  "tokenAuth": ""
 }

@@ -6,7 +6,6 @@ import config from "../../config.json";
 const matomo = new Matomo(3, config.matomoAPI);
 
 export function trackAttempt(namespace: string, req: Request, name?: string, v?: string) {
-  console.log(req.clientIp);
   try {
     if (!config.matomoAPI) return;
     matomo.track({
@@ -20,6 +19,7 @@ export function trackAttempt(namespace: string, req: Request, name?: string, v?:
       e_a: 'Attempt',
       e_n: name,
       cip: req.clientIp,
+      token_auth: config.tokenAuth,
     });
   } catch (e) {
     //
