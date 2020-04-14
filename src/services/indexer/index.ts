@@ -37,6 +37,7 @@ import Bottts from '@dicebear/avatars-bottts-sprites';
 import Jdenticon from '@dicebear/avatars-jdenticon-sprites';
 import {dotName, isSubdomain, parseUsername, serializeUsername} from "../../util/user";
 import {extendFilter} from "../../util/filter";
+import {trackAttempt} from "../../util/matomo";
 const appDataPath = './build';
 const dbPath = path.join(appDataPath, 'nomad.db');
 
@@ -83,6 +84,7 @@ export class IndexerManager {
 
   handlers = {
     '/posts': async (req: Request, res: Response) => {
+      trackAttempt('Get All Posts', req);
       try {
         const { order, offset, limit } = req.query || {};
         const posts = await this.getPosts(order, limit, offset);
@@ -93,17 +95,20 @@ export class IndexerManager {
     },
 
     '/posts/:hash': async (req: Request, res: Response) =>  {
+      trackAttempt('Get One Post', req, req.params.hash);
       const post = await this.getPostByHash(req.params.hash);
       res.send(makeResponse(post));
     },
 
     '/posts/:hash/comments': async (req: Request, res: Response) =>  {
+      trackAttempt('Get Post Comments', req, req.params.hash);
       const { order, offset } = req.query || {};
       const post = await this.getCommentsByHash(req.params.hash, order, offset);
       res.send(makeResponse(post));
     },
 
     '/filter': async (req: Request, res: Response) =>  {
+      trackAttempt('Get Posts by Filter', req);
       const { order, offset } = req.query || {};
       const { filter } = req.body;
       const post = await this.getPostsByFilter(filter, order, offset);
@@ -111,23 +116,27 @@ export class IndexerManager {
     },
 
     '/tlds': async (req: Request, res: Response) => {
+      trackAttempt('Get All TLDs', req);
       const tlds = await this.readAllTLDs();
       res.send(makeResponse(tlds));
     },
 
     '/tags': async (req: Request, res: Response) => {
+      trackAttempt('Get Posts by Tags', req);
       const { order, offset, tags } = req.query || {};
       const posts = await this.getTags(Array.isArray(tags) ? tags : [tags], order, offset);
       res.send(makeResponse(posts));
     },
 
     '/users/:username/timeline': async (req: Request, res: Response) => {
+      trackAttempt('Get Timeline by User', req, req.params.username);
       const { order, offset } = req.query || {};
       const posts = await this.getUserTimeline(req.params.username, order, offset);
       res.send(makeResponse(posts));
     },
 
     '/users/:username/likes': async (req: Request, res: Response) => {
+      trackAttempt('Get Likes by User', req, req.params.username);
       const { order, offset } = req.query || {};
       const {tld, subdomain} = parseUsername(req.params.username);
       const filter = extendFilter({
@@ -139,24 +148,28 @@ export class IndexerManager {
     },
 
     '/users/:username/comments': async (req: Request, res: Response) => {
+      trackAttempt('Get Comments by User', req, req.params.username);
       const { order, offset } = req.query || {};
       const posts = await this.getUserReplies(req.params.username, order, offset);
       res.send(makeResponse(posts));
     },
 
     '/users/:username/followees': async (req: Request, res: Response) => {
+      trackAttempt('Get Followees by User', req, req.params.username);
       const { order, offset } = req.query || {};
       const posts = await this.getUserFollowings(req.params.username, order, offset);
       res.send(makeResponse(posts));
     },
 
     '/users/:username/blockees': async (req: Request, res: Response) => {
+      trackAttempt('Get Blockees by User', req, req.params.username);
       const { order, offset } = req.query || {};
       const posts = await this.getUserBlocks(req.params.username, order, offset);
       res.send(makeResponse(posts));
     },
 
     '/users/:username/profile': async (req: Request, res: Response) => {
+      trackAttempt('Get User Profile', req, req.params.username);
       const hash = await this.getUserProfile(req.params.username);
       res.send(makeResponse(hash));
     },

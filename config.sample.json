@@ -2,5 +2,7 @@
   "handshakeRPCHost": "http://127.0.0.1",
   "handshakeRPCKey": "",
   "heartbeartUrl": "https://www.ddrpscan.com/heartbeat",
-  "moniker": "Nomad API"
+  "moniker": "Nomad API",
+  "matomoAPI": "",
+  "baseIP": ""
 }
