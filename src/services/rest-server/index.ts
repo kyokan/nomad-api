@@ -3,6 +3,7 @@ import cors, {CorsOptions} from 'cors';
 import {makeResponse} from "../../util/rest";
 import logger from "../../util/logger";
 import fs from "fs";
+import {trackAttempt} from "../../util/matomo";
 const port = 8082 || process.env.PORT;
 
 let docsHTML: string;
