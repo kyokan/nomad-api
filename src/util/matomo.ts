@@ -18,6 +18,7 @@ export function trackAttempt(namespace: string, req: Request, name?: string, v?:
       e_c: namespace,
       e_a: 'Attempt',
       e_n: name,
+      cip: req.ip,
     });
   } catch (e) {
     //
