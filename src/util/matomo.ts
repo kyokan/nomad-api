@@ -10,7 +10,7 @@ export function trackAttempt(namespace: string, req: Request, name?: string, v?:
     if (!config.matomoAPI) return;
     matomo.track({
       url: `http://${config.baseIP || 'localhost'}:8082${req.url}`,
-      urlref: `http://${req.hostname}:8082${req.url}`,
+      urlref: req.get('origin'),
       // eslint-disable-next-line @typescript-eslint/camelcase
       action_name: `Request`,
       lang: req.headers["accept-language"],
