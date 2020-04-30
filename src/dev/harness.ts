@@ -13,13 +13,11 @@ healthCheck();
   await getPostsCheck('/posts?order=ASC&limit=20&offset=20');
   await getPostCheck('/posts/e6c6bf61453010d1a3aee46200c022ce343c4791912ba89905ab016c3b60ed57');
   await getPostsCheck('/posts/9ee4bd0908a3a0fff5f03aa58a24819b2343dc5f83adb1e18fd6cdceb3c58433/comments');
-  await getPostsCheck('/users/@test-cross-platform.2062/timeline');
-  await getPostsCheck('/users/@9325/likes');
-  await getPostsCheck('/users/@jackychan/comments');
-  await getPostsCheck('/users/@whogonnastopme.9411/followees');
-  await getPostsCheck('/users/@whogonnastopme.9411/blockees');
+  await getPostsCheck('/users/9325/timeline');
+  await getPostsCheck('/users/9325/likes');
+  await getPostsCheck('/users/9325/comments');
   await getPostsCheck('/tags?tags=bug');
-  await getUserProfileCheck('/users/@9325/profile');
+  await getUserProfileCheck('/users/9325/profile');
 })();
 
 

@@ -2,6 +2,7 @@ import {Envelope as WireEnvelope} from "ddrp-js/dist/social/Envelope";
 import {Post as WirePost} from "ddrp-js/dist/social/Post";
 import {Connection as WireConnection} from "ddrp-js/dist/social/Connection";
 import {Moderation as WireModeration} from "ddrp-js/dist/social/Moderation";
+import {createRefhash} from "ddrp-js/dist/social/refhash";
 
 import {Envelope as DomainEnvelope} from 'ddrp-indexer/dist/domain/Envelope';
 import {Post as DomainPost} from 'ddrp-indexer/dist/domain/Post';
@@ -11,41 +12,53 @@ import {Moderation as DomainModeration} from 'ddrp-indexer/dist/domain/Moderatio
 export const mapWireToEnvelope = async (tld: string, wire: WireEnvelope): Promise<DomainEnvelope<DomainPost|DomainConnection|DomainModeration>> => {
   const {
     nameIndex,
-    // timestamp,
+    timestamp,
     guid,
     message,
     // signature,
-    // additionalData,
+    additionalData,
   } = wire;
 
   if (nameIndex) {
     return Promise.reject(new Error('subdomain not supported'));
   }
 
+  const refhashBuf = await createRefhash(wire, '', tld);
+  const refhash = refhashBuf.toString('hex');
+
   switch (message.type) {
     case WirePost.TYPE:
-      return await DomainEnvelope.createWithMessage<DomainPost>(
+      return new DomainEnvelope(
         0,
         tld,
         '',
         guid,
+        refhash,
+        timestamp,
         mapWirePostToDomainPost(message as WirePost),
+        additionalData,
       );
     case WireConnection.TYPE:
-      return await DomainEnvelope.createWithMessage<DomainConnection>(
+      return new DomainEnvelope(
         0,
         tld,
         '',
         guid,
+        refhash,
+        timestamp,
         mapWireConnectionToDomainConnection(message as WireConnection),
+        additionalData,
       );
     case WireModeration.TYPE:
-      return await DomainEnvelope.createWithMessage<DomainModeration>(
+      return new DomainEnvelope(
         0,
         tld,
         '',
         guid,
+        refhash,
+        timestamp,
         mapWireModerationToDomainModeration(message as WireModeration),
+        additionalData,
       );
     default:
       return Promise.reject(new Error('subdomain not supported'));
@@ -65,6 +78,7 @@ function mapWirePostToDomainPost(wirePost: WirePost): DomainPost {
     0,
   );
 }
+
 
 function mapWireConnectionToDomainConnection(wireConnection: WireConnection): DomainConnection {
   return new DomainConnection(

@@ -3,7 +3,7 @@ import SECP256k1Signer from "ddrp-js/dist/crypto/signer";
 import {BufferedReader} from "ddrp-js/dist/io/BufferedReader";
 import {BlobReader} from "ddrp-js/dist/ddrp/BlobReader";
 import {isSubdomainBlob, iterateAllEnvelopes, iterateSubdomain} from "ddrp-js/dist/social/streams";
-// import {EnvelopeWriter} from "ddrp-js/dist/social/EnvelopeWriter";
+import {EnvelopeWriter} from "ddrp-js/dist/social/EnvelopeWriter";
 import {Envelope as WireEnvelope} from "ddrp-js/dist/social/Envelope";
 import {Envelope as DomainEnvelope} from 'ddrp-indexer/dist/domain/Envelope';
 import {Post as DomainPost} from 'ddrp-indexer/dist/domain/Post';
@@ -25,7 +25,7 @@ import * as path from 'path';
 import * as fs from "fs";
 import logger from "../../util/logger";
 import {promisify} from "util";
-import {JOIN_SELECT, UserProfile} from "../../constants";
+import {UserProfile} from "../../constants";
 import {Express, Request, Response} from "express";
 import {makeResponse} from "../../util/rest";
 import bodyParser from "body-parser";
@@ -41,8 +41,6 @@ import {extendFilter, Filter} from "../../util/filter";
 import {trackAttempt} from "../../util/matomo";
 const appDataPath = './build';
 const dbPath = path.join(appDataPath, 'nomad.db');
-import crypto from "crypto";
-import Timeout = NodeJS.Timeout;
 import {mapWireToEnvelope} from "../../util/envelope";
 
 
@@ -84,39 +82,6 @@ export class IndexerManager {
     this.engine = new SqliteEngine(opts?.dbPath || dbPath);
     this.dbPath = opts?.dbPath || dbPath;
     this.resourcePath = opts?.resourcePath || 'resources';
-
-    (async function test() {
-      try {
-        await wait(5000);
-        const blobName = '9325';
-        const signer = SECP256k1Signer.fromHexPrivateKey('8c94b983798417f8431f47665509ebda7b41fb4e139c42af6fa5b35d6323e22c');
-        const truncate = false;
-        // const writer = new EnvelopeWriter(client, blobName, truncate, signer, 68);
-        //
-        // await writer.open();
-        // const envelope = new Envelope(
-        //   0,
-        //   new Date(),
-        //   crypto.randomBytes(8).toString('hex'),
-        //   new Post(
-        //     0,
-        //     Buffer.alloc(4),
-        //     'hello',
-        //     null,
-        //     null,
-        //     null,
-        //     [],
-        //   ),
-        //   null,
-        //   null,
-        // );
-        // await writer.writeEnvelope(envelope);
-        // await writer.commit();
-      } catch (e) {
-        console.log(e);
-      }
-    })();
-
   }
 
   handlers = {
@@ -162,43 +127,48 @@ export class IndexerManager {
       res.send(makeResponse(tlds));
     },
 
-    // '/tags': async (req: Request, res: Response) => {
-    //   trackAttempt('Get Posts by Tags', req);
-    //   const { order, offset, tags } = req.query || {};
-    //   const posts = await this.getTags(Array.isArray(tags) ? tags : [tags], order, offset);
-    //   res.send(makeResponse(posts));
-    // },
-    //
-    // '/users/:username/timeline': async (req: Request, res: Response) => {
-    //   trackAttempt('Get Timeline by User', req, req.params.username);
-    //   const { order, offset } = req.query || {};
-    //   const posts = await this.getUserTimeline(req.params.username, order, offset);
-    //   res.send(makeResponse(posts));
-    // },
-    //
-    // '/users/:username/likes': async (req: Request, res: Response) => {
-    //   trackAttempt('Get Likes by User', req, req.params.username);
-    //   const { order, offset } = req.query || {};
-    //   const {tld, subdomain} = parseUsername(req.params.username);
-    //   const filter = extendFilter({
-    //     likedBy: [serializeUsername(subdomain, tld)],
-    //     allowedTags: ['*'],
-    //   });
-    //   const posts = await this.getPostsByFilter(filter, order, offset);
-    //   res.send(makeResponse(posts));
-    // },
-    //
-    // '/users/:username/comments': async (req: Request, res: Response) => {
-    //   trackAttempt('Get Comments by User', req, req.params.username);
-    //   const { order, offset } = req.query || {};
-    //   const posts = await this.getUserReplies(req.params.username, order, offset);
-    //   res.send(makeResponse(posts));
-    // },
-    //
+    '/tags': async (req: Request, res: Response) => {
+      trackAttempt('Get Posts by Tags', req);
+      const { order, offset, tags } = req.query || {};
+      const posts = await this.getPostsByFilter(extendFilter({
+        allowedTags: Array.isArray(tags) ? tags : [tags],
+      }), order, offset);
+      res.send(makeResponse(posts));
+    },
+
+    '/users/:username/timeline': async (req: Request, res: Response) => {
+      trackAttempt('Get Timeline by User', req, req.params.username);
+      const { order, offset } = req.query || {};
+      const {tld, subdomain} = parseUsername(req.params.username);
+      const posts = await this.getPostsByFilter(extendFilter({
+        postedBy: [serializeUsername(subdomain, tld)],
+      }), order, offset);
+      res.send(makeResponse(posts));
+    },
+
+    '/users/:username/likes': async (req: Request, res: Response) => {
+      trackAttempt('Get Likes by User', req, req.params.username);
+      const { order, offset } = req.query || {};
+      const {tld, subdomain} = parseUsername(req.params.username);
+      const posts = await this.getPostsByFilter(extendFilter({
+        likedBy: [serializeUsername(subdomain, tld)],
+      }), order, offset);
+      res.send(makeResponse(posts));
+    },
+
+    '/users/:username/comments': async (req: Request, res: Response) => {
+      trackAttempt('Get Comments by User', req, req.params.username);
+      const { order, offset } = req.query || {};
+      const {tld, subdomain} = parseUsername(req.params.username);
+      const posts = await this.getPostsByFilter(extendFilter({
+        repliedBy: [serializeUsername(subdomain, tld)],
+      }), order, offset);
+      res.send(makeResponse(posts));
+    },
+
     '/users/:username/followees': async (req: Request, res: Response) => {
       trackAttempt('Get Followees by User', req, req.params.username);
       const { order, offset } = req.query || {};
-      console.log(req.params.username);
       const posts = await this.getUserFollowings(req.params.username, order, offset);
       res.send(makeResponse(posts));
     },
@@ -210,11 +180,11 @@ export class IndexerManager {
       res.send(makeResponse(posts));
     },
 
-    // '/users/:username/profile': async (req: Request, res: Response) => {
-    //   trackAttempt('Get User Profile', req, req.params.username);
-    //   const hash = await this.getUserProfile(req.params.username);
-    //   res.send(makeResponse(hash));
-    // },
+    '/users/:username/profile': async (req: Request, res: Response) => {
+      trackAttempt('Get User Profile', req, req.params.username);
+      const hash = await this.getUserProfile(req.params.username);
+      res.send(makeResponse(hash));
+    },
 
     '/avatars/:sprite/:seed.svg': async (req: Request, res: Response) => {
       try {
@@ -270,25 +240,17 @@ export class IndexerManager {
     app.get('/posts/:hash', this.handlers['/posts/:hash']);
     app.get('/posts/:hash/comments', this.handlers['/posts/:hash/comments']);
     app.post('/filter', jsonParser, this.handlers['/filter']);
-
     app.get('/tlds', this.handlers['/tlds']);
-    // app.get('/tags', this.handlers['/tags']);
-    // app.get('/users/:username/timeline', this.handlers['/users/:username/timeline']);
-    // app.get('/users/:username/likes', this.handlers['/users/:username/likes']);
-    // app.get('/users/:username/comments', this.handlers['/users/:username/comments']);
+    app.get('/tags', this.handlers['/tags']);
+    app.get('/users/:username/timeline', this.handlers['/users/:username/timeline']);
+    app.get('/users/:username/likes', this.handlers['/users/:username/likes']);
+    app.get('/users/:username/comments', this.handlers['/users/:username/comments']);
     app.get('/users/:username/followees', this.handlers['/users/:username/followees']);
     app.get('/users/:username/blockees', this.handlers['/users/:username/blockees']);
-    // app.get('/users/:username/profile', this.handlers['/users/:username/profile']);
+    app.get('/users/:username/profile', this.handlers['/users/:username/profile']);
     app.get('/avatars/:sprite/:seed.svg', this.handlers['/avatars/:sprite/:seed.svg']);
     // app.get('/media/:postHash', this.handlers['/media/:postHash']);
   };
-
-
-  // getTags = async (tags: string[], order: 'ASC' | 'DESC' = 'ASC', start = 0): Promise<Pageable<PostWithMeta, number>> => {
-  //   return await this.postsDao!.getPostsByFilterV2(extendFilter({
-  //     allowedTags: tags,
-  //   }), order, start);
-  // };
 
   getUserBlocks = async (username: string, order: 'ASC' | 'DESC' = 'ASC', start = 0): Promise<Pageable<DomainBlock, number>> => {
     const { tld, subdomain } = parseUsername(username);
@@ -334,26 +296,110 @@ export class IndexerManager {
     const envelopes: DomainEnvelope<DomainPost>[] = [];
     const {
       postedBy,
+      repliedBy,
+      likedBy,
+      allowedTags,
     } = extendFilter(f);
 
     let postedByQueries = '';
+    let repliedByQueries = '';
+    let postedBySelect = '';
+    let repliedBySelect = '';
+    let allowedTagsJoin = '';
+    let likedBySelect = '';
+    let likedByQueries = '';
 
-
-    if (!postedBy.includes('*')) {
-      postedByQueries = `(${postedBy
-        .map(username => {
-          const { tld, subdomain } = parseUsername(username);
-          return `(e.tld = "${tld}" AND subdomain = "${subdomain}")`;
-        })
-        .join(' OR ')})`;
-    }
-
-    console.log([postedByQueries, 'p.id > @start'].filter(q => !!q).join(' AND '))
-    this.engine.each(`
+    if (postedBy.length) {
+      postedBySelect = `
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
-        FROM posts p JOIN envelopes e ON p.envelope_id = e.id
-        WHERE ${[postedByQueries, 'p.id > @start'].filter(q => !!q).join(' AND ')}
+        FROM posts p
+        JOIN envelopes e ON p.envelope_id = e.id
+      `;
+
+      if (!postedBy.includes('*')) {
+        postedByQueries = `(${postedBy
+          .map(username => {
+            const { tld, subdomain } = parseUsername(username);
+            return `(e.tld = "${tld}" AND subdomain = "${subdomain}" AND p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL))`;
+          })
+          .join(' OR ')})`;
+      } else {
+        postedByQueries = `(p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL))`;
+      }
+
+      postedBySelect = postedBySelect + ' WHERE ' + postedByQueries
+    }
+
+    if (repliedBy.length) {
+      repliedBySelect = `
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        FROM posts p
+        JOIN envelopes e ON p.envelope_id = e.id
+      `;
+
+      if (!repliedBy.includes('*')) {
+        repliedByQueries = `(${repliedBy
+          .map(username => {
+            const { tld, subdomain } = parseUsername(username);
+            return `(e.tld = "${tld}" AND subdomain = "${subdomain}" AND p.reference is not NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL))`;
+          })
+          .join(' OR ')})`;
+      } else {
+        repliedByQueries = `(p.reference is not NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL))`;
+      }
+
+      repliedBySelect = repliedBySelect + ' WHERE ' + repliedByQueries
+    }
+
+    if (allowedTags.includes('*')) {
+      allowedTagsJoin = `
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        FROM posts p
+        LEFT JOIN envelopes e ON p.envelope_id = e.id
+        JOIN tags_posts tp ON p.id = tp.post_id
+        WHERE p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL)
+      `
+    } else if (allowedTags.length) {
+      allowedTagsJoin = `
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        FROM posts p
+        LEFT JOIN envelopes e ON p.envelope_id = e.id
+        JOIN (tags_posts tp JOIN tags t ON t.id = tp.tag_id)
+            ON t.name IN (${allowedTags.map(t => `"${t}"`).join(',')}) AND p.id = tp.post_id
+        WHERE p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL)
+      `
+    }
+
+    if (likedBy.length) {
+      likedBySelect = `
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        FROM posts p
+        LEFT JOIN envelopes e ON p.envelope_id = e.id
+        JOIN (moderations mod JOIN envelopes env ON mod.envelope_id = env.id)
+        ON mod.reference = e.refhash
+      `;
+
+      if (!likedBy.includes('*')) {
+        likedByQueries = `(${likedBy
+          .map(username => {
+            const { tld, subdomain } = parseUsername(username);
+            return `(e.tld = "${tld}" AND e.subdomain = "${subdomain}" AND p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL))`;
+          })
+          .join(' OR ')})`;
+      } else {
+        likedByQueries = `(p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL))`;
+      }
+
+      likedBySelect = likedBySelect + ' WHERE ' + likedByQueries
+    }
+
+    this.engine.each(`
+        ${[postedBySelect, repliedBySelect, allowedTagsJoin, likedBySelect].filter(d => !!d).join('UNION')}
         ORDER BY p.id ${order === 'ASC' ? 'ASC' : 'DESC'}
         LIMIT @limit
     `, {
@@ -363,11 +409,17 @@ export class IndexerManager {
       envelopes.push(this.mapPost(row, true));
     });
 
+
     if (!envelopes.length) {
       return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
     }
 
-    return new Pageable<DomainEnvelope<DomainPost>, number>(envelopes, envelopes[envelopes.length - 1].message.id);
+    return new Pageable<DomainEnvelope<DomainPost>, number>(
+      envelopes,
+      order === 'ASC'
+        ? envelopes[envelopes.length - 1].message.id
+        : envelopes[0].message.id
+    );
   };
 
   getCommentsByHash = async (reference: string | null, order?: 'ASC' | 'DESC', limit = 20,  start = 0): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
@@ -376,7 +428,7 @@ export class IndexerManager {
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
-        WHERE p.reference = @reference AND  p.id > @start
+        WHERE p.reference = @reference AND (p.topic NOT LIKE ".%" OR p.topic is NULL) AND p.id > @start
         ORDER BY p.id ${order === 'ASC' ? 'ASC' : 'DESC'}
         LIMIT @limit
     `, {
@@ -391,99 +443,97 @@ export class IndexerManager {
       return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
     }
 
-    return new Pageable<DomainEnvelope<DomainPost>, number>(envelopes, envelopes[envelopes.length - 1].message.id);
+    return new Pageable<DomainEnvelope<DomainPost>, number>(
+      envelopes,
+      order === 'ASC'
+        ? envelopes[envelopes.length - 1].message.id
+        : envelopes[0].message.id
+    );
   };
 
-  private getUserDisplayName = async (username: string): Promise<string|undefined> => {
-    const rows: Row[] = [];
+  private getUserDisplayName = async (username: string): Promise<string> => {
     const { tld, subdomain } = parseUsername(username);
 
-    if (isSubdomain(username)) {
-      this.engine.each(`SELECT content, ts from posts where tld = @tld AND subdomain = @subdomain AND topic = ".display_name" ORDER BY ts DESC LIMIT 1`, {
-        tld: dotName(tld),
-        subdomain,
-      }, (row) => rows.push(row));
-    } else {
-      this.engine.each(`SELECT content, ts from posts where tld = @tld AND subdomain is NULL AND topic = ".display_name" ORDER BY ts DESC LIMIT 1`, {
-        tld: dotName(tld),
-      }, (row) => rows.push(row));
-    }
+    const displayName = this.engine.first(`
+      SELECT e.created_at, p.body
+      FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+      WHERE tld = @tld AND subdomain = @subdomain AND topic = ".display_name"
+      ORDER BY e.created_at DESC
+    `, {
+      tld: dotName(tld),
+      subdomain,
+    });
 
-    return rows[0]?.content;
+
+    return displayName?.body || '';
   };
 
   private getUserBio = async (username: string): Promise<string|undefined> => {
-    const rows: Row[] = [];
     const { tld, subdomain } = parseUsername(username);
 
-    if (isSubdomain(username)) {
-      this.engine.each(`SELECT content, ts from posts where tld = @tld AND subdomain = @subdomain AND topic = ".bio" ORDER BY ts DESC LIMIT 1`, {
-        tld: dotName(tld),
-        subdomain,
-      }, (row) => rows.push(row));
-    } else {
-      this.engine.each(`SELECT content, ts from posts where tld = @tld AND subdomain is NULL AND topic = ".bio" ORDER BY ts DESC LIMIT 1`, {
-        tld: dotName(tld),
-      }, (row) => rows.push(row));
-    }
+    const displayName = this.engine.first(`
+      SELECT e.created_at, p.body
+      FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+      WHERE tld = @tld AND subdomain = @subdomain AND topic = ".user_bio"
+      ORDER BY e.created_at DESC
+    `, {
+      tld: dotName(tld),
+      subdomain,
+    });
 
-    return rows[0]?.content;
+
+    return displayName?.body || '';
   };
 
   private getUserAvatarType = async (username: string): Promise<string|undefined> => {
-    const rows: Row[] = [];
     const { tld, subdomain } = parseUsername(username);
 
-    if (isSubdomain(username)) {
-      this.engine.each(`SELECT content, ts from posts where tld = @tld AND subdomain = @subdomain AND topic = ".avatar_type" ORDER BY ts DESC LIMIT 1`, {
-        tld: dotName(tld),
-        subdomain,
-      }, (row) => rows.push(row));
-    } else {
-      this.engine.each(`SELECT content, ts from posts where tld = @tld AND subdomain is NULL AND topic = ".avatar_type" ORDER BY ts DESC LIMIT 1`, {
-        tld: dotName(tld),
-      }, (row) => rows.push(row));
-    }
+    const displayName = this.engine.first(`
+      SELECT e.created_at, p.body
+      FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+      WHERE tld = @tld AND subdomain = @subdomain AND topic = ".avatar_type"
+      ORDER BY e.created_at DESC
+    `, {
+      tld: dotName(tld),
+      subdomain,
+    });
 
-    return rows[0]?.content;
+
+    return displayName?.body || '';
   };
 
   private getUserProfilePicture = async (username: string): Promise<string|undefined> => {
-    const rows: Row[] = [];
     const { tld, subdomain } = parseUsername(username);
 
-    if (isSubdomain(username)) {
-      this.engine.each(`SELECT context, ts from posts where tld = @tld AND subdomain = @subdomain AND topic = ".profile_picture_url" ORDER BY ts DESC LIMIT 1`, {
-        tld: dotName(tld),
-        subdomain,
-      }, (row) => rows.push(row));
-    } else {
-      this.engine.each(`SELECT context, ts from posts where tld = @tld AND subdomain is NULL AND topic = ".profile_picture_url" ORDER BY ts DESC LIMIT 1`, {
-        tld: dotName(tld),
-      }, (row) => rows.push(row));
-    }
+    const displayName = this.engine.first(`
+      SELECT e.created_at, p.reference
+      FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+      WHERE tld = @tld AND subdomain = @subdomain AND topic = ".profile_picture_refhash"
+      ORDER BY e.created_at DESC
+    `, {
+      tld: dotName(tld),
+      subdomain,
+    });
 
-    return rows[0]?.context;
+    return displayName?.reference || '';
   };
 
   private getUserCoverImage = async (username: string): Promise<string|undefined> => {
-    const rows: Row[] = [];
     const { tld, subdomain } = parseUsername(username);
 
-    if (isSubdomain(username)) {
-      this.engine.each(`SELECT context, ts from posts where tld = @tld AND subdomain = @subdomain AND topic = ".cover_image" ORDER BY ts DESC LIMIT 1`, {
-        tld: dotName(tld),
-        subdomain,
-      }, (row) => rows.push(row));
-    } else {
-      this.engine.each(`SELECT context, ts from posts where tld = @tld AND subdomain is NULL AND topic = ".cover_image" ORDER BY ts DESC LIMIT 1`, {
-        tld: dotName(tld),
-      }, (row) => rows.push(row));
-    }
+    const displayName = this.engine.first(`
+      SELECT e.created_at, p.reference
+      FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+      WHERE tld = @tld AND subdomain = @subdomain AND topic = ".cover_image_refhash"
+      ORDER BY e.created_at DESC
+    `, {
+      tld: dotName(tld),
+      subdomain,
+    });
 
-
-    return rows[0]?.context;
+    return displayName?.reference || '';
   };
+
 
   getUserProfile = async (username: string): Promise<UserProfile> => {
     const profilePicture = await this.getUserProfilePicture(username) || '';
@@ -491,6 +541,7 @@ export class IndexerManager {
     const bio = await this.getUserBio(username) || '';
     const avatarType = await this.getUserAvatarType(username) || '';
     const displayName = await this.getUserDisplayName(username) || '';
+
     return {
       profilePicture,
       coverImage,
@@ -506,7 +557,7 @@ export class IndexerManager {
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
-        WHERE p.id > @start
+        WHERE (p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL)) AND p.id > @start
         ORDER BY p.id ${order === 'ASC' ? 'ASC' : 'DESC'}
         LIMIT @limit
     `, {
@@ -520,15 +571,30 @@ export class IndexerManager {
       return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
     }
 
-    return new Pageable<DomainEnvelope<DomainPost>, number>(envelopes, envelopes[envelopes.length - 1].message.id);
+    return new Pageable<DomainEnvelope<DomainPost>, number>(
+      envelopes,
+      order === 'ASC'
+        ? envelopes[envelopes.length - 1].message.id
+        : envelopes[0].message.id
+    );
   };
 
   private mapPost (row: Row, includeTags: boolean): DomainEnvelope<DomainPost> {
     const tags: string[] = [];
+
     if (includeTags) {
-      this.engine.each('SELECT name as tag FROM tags t JOIN tags_posts tp ON t.id = tp.tag_id', {}, (row) => {
-        tags.push(row.tag);
-      });
+      this.engine.each(`
+          SELECT name as tag 
+          FROM tags t JOIN tags_posts tp ON t.id = tp.tag_id
+          WHERE tp.post_id = @postID
+        `,
+        {
+          postID: row.post_id,
+        },
+        (row) => {
+          tags.push(row.tag);
+        },
+      );
     }
 
     return new DomainEnvelope<DomainPost>(
@@ -635,8 +701,37 @@ export class IndexerManager {
   //   })
   // };
 
+  findNextOffset = async (tld: string): Promise<number> => {
+    let offset = 0;
+    let timeout: NodeJS.Timeout;
+    const r = new BufferedReader(new BlobReader(tld, this.client), 1024 * 1024);
+    return new Promise((resolve, reject) => {
+      timeout = setTimeout(() => resolve(offset), 500);
+      iterateAllEnvelopes(r, (err, env) => {
+        if (err) {
+          reject(err);
+          return false;
+        }
+
+        if (env === null) {
+          if (timeout) clearTimeout(timeout);
+          resolve(offset);
+          return false;
+        }
+
+        if (timeout) clearTimeout(timeout);
+
+        // @ts-ignore
+        offset = r.off;
+        timeout = setTimeout(() => resolve(offset), 500);
+        return true;
+      });
+    });
+  };
+
   streamBlob = async (tld: string): Promise<void> => {
     logger.info(`Reading ${tld}`, { tld });
+
     try {
       const r = new BufferedReader(new BlobReader(tld, this.client), 1024 * 1024);
 
@@ -651,7 +746,6 @@ export class IndexerManager {
         }
 
         if (!env.nameIndex) {
-          console.log(env);
           this.insertPost(tld, null, env);
         }
 
@@ -660,6 +754,7 @@ export class IndexerManager {
     } catch (e) {
       logger.error(`cannot read ${tld}`);
       logger.error(e.message);
+      return Promise.reject(e);
     }
   };
 
@@ -776,5 +871,4 @@ function wait(ms: number): Promise<void> {
     setTimeout(resolve, ms);
   });
 }
-
 
