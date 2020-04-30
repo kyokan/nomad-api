@@ -7,7 +7,11 @@ import {isSubdomainBlob, iterateAllEnvelopes, iterateSubdomain} from "ddrp-js/di
 import {Envelope as WireEnvelope} from "ddrp-js/dist/social/Envelope";
 import {Envelope as DomainEnvelope} from 'ddrp-indexer/dist/domain/Envelope';
 import {Post as DomainPost} from 'ddrp-indexer/dist/domain/Post';
-import {Connection as DomainConnection} from 'ddrp-indexer/dist/domain/Connection';
+import {
+  Connection as DomainConnection,
+  Follow as DomainFollow,
+  Block as DomainBlock,
+} from 'ddrp-indexer/dist/domain/Connection';
 import {Moderation as DomainModeration} from 'ddrp-indexer/dist/domain/Moderation';
 import {Post} from "ddrp-js/dist/social/Post";
 import {Connection} from "ddrp-js/dist/social/Connection";
@@ -33,7 +37,7 @@ import Avataaars from '@dicebear/avatars-avataaars-sprites';
 import Bottts from '@dicebear/avatars-bottts-sprites';
 import Jdenticon from '@dicebear/avatars-jdenticon-sprites';
 import {dotName, isSubdomain, parseUsername, serializeUsername} from "../../util/user";
-import {extendFilter} from "../../util/filter";
+import {extendFilter, Filter} from "../../util/filter";
 import {trackAttempt} from "../../util/matomo";
 const appDataPath = './build';
 const dbPath = path.join(appDataPath, 'nomad.db');
@@ -144,13 +148,13 @@ export class IndexerManager {
       res.send(makeResponse(post));
     },
     //
-    // '/filter': async (req: Request, res: Response) =>  {
-    //   trackAttempt('Get Posts by Filter', req);
-    //   const { order, offset } = req.query || {};
-    //   const { filter } = req.body;
-    //   const post = await this.getPostsByFilter(filter, order, offset);
-    //   res.send(makeResponse(post));
-    // },
+    '/filter': async (req: Request, res: Response) =>  {
+      trackAttempt('Get Posts by Filter', req);
+      const { order, offset } = req.query || {};
+      const { filter } = req.body;
+      const post = await this.getPostsByFilter(filter, order, offset);
+      res.send(makeResponse(post));
+    },
 
     '/tlds': async (req: Request, res: Response) => {
       trackAttempt('Get All TLDs', req);
@@ -191,19 +195,20 @@ export class IndexerManager {
     //   res.send(makeResponse(posts));
     // },
     //
-    // '/users/:username/followees': async (req: Request, res: Response) => {
-    //   trackAttempt('Get Followees by User', req, req.params.username);
-    //   const { order, offset } = req.query || {};
-    //   const posts = await this.getUserFollowings(req.params.username, order, offset);
-    //   res.send(makeResponse(posts));
-    // },
-    //
-    // '/users/:username/blockees': async (req: Request, res: Response) => {
-    //   trackAttempt('Get Blockees by User', req, req.params.username);
-    //   const { order, offset } = req.query || {};
-    //   const posts = await this.getUserBlocks(req.params.username, order, offset);
-    //   res.send(makeResponse(posts));
-    // },
+    '/users/:username/followees': async (req: Request, res: Response) => {
+      trackAttempt('Get Followees by User', req, req.params.username);
+      const { order, offset } = req.query || {};
+      console.log(req.params.username);
+      const posts = await this.getUserFollowings(req.params.username, order, offset);
+      res.send(makeResponse(posts));
+    },
+
+    '/users/:username/blockees': async (req: Request, res: Response) => {
+      trackAttempt('Get Blockees by User', req, req.params.username);
+      const { order, offset } = req.query || {};
+      const posts = await this.getUserBlocks(req.params.username, order, offset);
+      res.send(makeResponse(posts));
+    },
 
     // '/users/:username/profile': async (req: Request, res: Response) => {
     //   trackAttempt('Get User Profile', req, req.params.username);
@@ -264,15 +269,15 @@ export class IndexerManager {
     app.get('/posts', this.handlers['/posts']);
     app.get('/posts/:hash', this.handlers['/posts/:hash']);
     app.get('/posts/:hash/comments', this.handlers['/posts/:hash/comments']);
+    app.post('/filter', jsonParser, this.handlers['/filter']);
 
-    // app.post('/filter', jsonParser, this.handlers['/filter']);
     app.get('/tlds', this.handlers['/tlds']);
     // app.get('/tags', this.handlers['/tags']);
     // app.get('/users/:username/timeline', this.handlers['/users/:username/timeline']);
     // app.get('/users/:username/likes', this.handlers['/users/:username/likes']);
     // app.get('/users/:username/comments', this.handlers['/users/:username/comments']);
-    // app.get('/users/:username/followees', this.handlers['/users/:username/followees']);
-    // app.get('/users/:username/blockees', this.handlers['/users/:username/blockees']);
+    app.get('/users/:username/followees', this.handlers['/users/:username/followees']);
+    app.get('/users/:username/blockees', this.handlers['/users/:username/blockees']);
     // app.get('/users/:username/profile', this.handlers['/users/:username/profile']);
     app.get('/avatars/:sprite/:seed.svg', this.handlers['/avatars/:sprite/:seed.svg']);
     // app.get('/media/:postHash', this.handlers['/media/:postHash']);
@@ -284,20 +289,16 @@ export class IndexerManager {
   //     allowedTags: tags,
   //   }), order, start);
   // };
-  //
-  // getUserBlocks = async (username: string, order: 'ASC' | 'DESC' = 'ASC', start = 0): Promise<Pageable<Block, number>> => {
-  //   const { tld, subdomain } = parseUsername(username);
-  //   return (isSubdomain(username) && subdomain)
-  //     ? await this.blocksDAO!.getBlockedBySubdomain(dotName(tld), subdomain, order, start)
-  //     : await this.blocksDAO!.getBlockedByTLD(dotName(tld), order, start);
-  // };
-  //
-  // getUserFollowings = async (username: string, order: 'ASC' | 'DESC' = 'ASC', start = 0): Promise<Pageable<Follow, number>> => {
-  //   const { tld, subdomain } = parseUsername(username);
-  //   return (isSubdomain(username) && subdomain)
-  //     ? await this.followsDao!.getFolloweeBySubdomain(dotName(tld), subdomain, order, start)
-  //     : await this.followsDao!.getFolloweeByTLD(dotName(tld), order, start);
-  // };
+
+  getUserBlocks = async (username: string, order: 'ASC' | 'DESC' = 'ASC', start = 0): Promise<Pageable<DomainBlock, number>> => {
+    const { tld, subdomain } = parseUsername(username);
+    return this.connectionsDao!.getBlockees(tld, subdomain || '', start);
+  };
+
+  getUserFollowings = async (username: string, order: 'ASC' | 'DESC' = 'ASC', start = 0): Promise<Pageable<DomainFollow, number>> => {
+    const { tld, subdomain } = parseUsername(username);
+    return this.connectionsDao!.getFollowees(tld, subdomain || '', start);
+  };
   //
   // getUserTimeline = async (username: string, order: 'ASC' | 'DESC' = 'ASC', start = 0): Promise<Pageable<PostWithMeta, number>> => {
   //   const { tld, subdomain } = parseUsername(username);
@@ -326,13 +327,49 @@ export class IndexerManager {
   // };
   //
   getPostByHash = async (refhash: string): Promise<DomainEnvelope<DomainPost> | null>  => {
-    return await this.postsDao!.getPostByRefhash(refhash);
+    return this.postsDao!.getPostByRefhash(refhash);
   };
-  //
-  // getPostsByFilter = async (filter: Filter, order?: 'ASC' | 'DESC', start?: number): Promise<Pageable<PostWithMeta, number>> => {
-  //   return await this.postsDao!.getPostsByFilterV2(filter, order, start);
-  // };
-  //
+
+  getPostsByFilter = async (f: Filter, order: 'ASC' | 'DESC' = 'DESC', limit= 20, offset = 0): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    const envelopes: DomainEnvelope<DomainPost>[] = [];
+    const {
+      postedBy,
+    } = extendFilter(f);
+
+    let postedByQueries = '';
+
+
+    if (!postedBy.includes('*')) {
+      postedByQueries = `(${postedBy
+        .map(username => {
+          const { tld, subdomain } = parseUsername(username);
+          return `(e.tld = "${tld}" AND subdomain = "${subdomain}")`;
+        })
+        .join(' OR ')})`;
+    }
+
+    console.log([postedByQueries, 'p.id > @start'].filter(q => !!q).join(' AND '))
+    this.engine.each(`
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+        WHERE ${[postedByQueries, 'p.id > @start'].filter(q => !!q).join(' AND ')}
+        ORDER BY p.id ${order === 'ASC' ? 'ASC' : 'DESC'}
+        LIMIT @limit
+    `, {
+      start: offset,
+      limit,
+    }, (row) => {
+      envelopes.push(this.mapPost(row, true));
+    });
+
+    if (!envelopes.length) {
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+
+    return new Pageable<DomainEnvelope<DomainPost>, number>(envelopes, envelopes[envelopes.length - 1].message.id);
+  };
+
   getCommentsByHash = async (reference: string | null, order?: 'ASC' | 'DESC', limit = 20,  start = 0): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
     const envelopes: DomainEnvelope<DomainPost>[] = [];
     this.engine.each(`

@@ -1,6 +1,11 @@
-import {Filter as F} from 'ddrp-indexer/dist/dao/Filter';
-
-export type Filter = F;
+export interface Filter {
+  postedBy: string[];
+  likedBy: string[];
+  repliedBy: string[];
+  postHashes: string[];
+  parentHashes: string[];
+  allowedTags: string[];
+}
 
 export type FilterOpts = {
   postedBy?: string[];
