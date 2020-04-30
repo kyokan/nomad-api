@@ -126,19 +126,23 @@ export class IndexerManager {
         res.status(500).send(makeResponse(e.message, true));
       }
     },
-    //
-    // '/posts/:hash': async (req: Request, res: Response) =>  {
-    //   trackAttempt('Get One Post', req, req.params.hash);
-    //   const post = await this.getPostByHash(req.params.hash);
-    //   res.send(makeResponse(post));
-    // },
-    //
-    // '/posts/:hash/comments': async (req: Request, res: Response) =>  {
-    //   trackAttempt('Get Post Comments', req, req.params.hash);
-    //   const { order, offset } = req.query || {};
-    //   const post = await this.getCommentsByHash(req.params.hash, order, offset);
-    //   res.send(makeResponse(post));
-    // },
+
+    '/posts/:hash': async (req: Request, res: Response) =>  {
+      try {
+        trackAttempt('Get One Post', req, req.params.hash);
+        const post = await this.getPostByHash(req.params.hash);
+        res.send(makeResponse(post));
+      } catch (e) {
+        res.status(500).send(makeResponse(e.message, true));
+      }
+    },
+
+    '/posts/:hash/comments': async (req: Request, res: Response) =>  {
+      trackAttempt('Get Post Comments', req, req.params.hash);
+      const { order, offset } = req.query || {};
+      const post = await this.getCommentsByHash(req.params.hash, order, offset);
+      res.send(makeResponse(post));
+    },
     //
     // '/filter': async (req: Request, res: Response) =>  {
     //   trackAttempt('Get Posts by Filter', req);
@@ -148,11 +152,11 @@ export class IndexerManager {
     //   res.send(makeResponse(post));
     // },
 
-    // '/tlds': async (req: Request, res: Response) => {
-      // trackAttempt('Get All TLDs', req);
-      // // const tlds = await this.readAllTLDs();
-      // res.send(makeResponse(tlds));
-    // },
+    '/tlds': async (req: Request, res: Response) => {
+      trackAttempt('Get All TLDs', req);
+      const tlds = await this.readAllTLDs();
+      res.send(makeResponse(tlds));
+    },
 
     // '/tags': async (req: Request, res: Response) => {
     //   trackAttempt('Get Posts by Tags', req);
@@ -258,10 +262,11 @@ export class IndexerManager {
 
   setRoutes = (app: Express) => {
     app.get('/posts', this.handlers['/posts']);
-    // app.get('/posts/:hash', this.handlers['/posts/:hash']);
-    // app.get('/posts/:hash/comments', this.handlers['/posts/:hash/comments']);
+    app.get('/posts/:hash', this.handlers['/posts/:hash']);
+    app.get('/posts/:hash/comments', this.handlers['/posts/:hash/comments']);
+
     // app.post('/filter', jsonParser, this.handlers['/filter']);
-    // app.get('/tlds', this.handlers['/tlds']);
+    app.get('/tlds', this.handlers['/tlds']);
     // app.get('/tags', this.handlers['/tags']);
     // app.get('/users/:username/timeline', this.handlers['/users/:username/timeline']);
     // app.get('/users/:username/likes', this.handlers['/users/:username/likes']);
@@ -320,17 +325,37 @@ export class IndexerManager {
   //   }), order, start);
   // };
   //
-  // getPostByHash = async (hash: string): Promise<PostWithMeta | null>  => {
-  //   return await this.postsDao!.getPostByHash(hash);
-  // };
+  getPostByHash = async (refhash: string): Promise<DomainEnvelope<DomainPost> | null>  => {
+    return await this.postsDao!.getPostByRefhash(refhash);
+  };
   //
   // getPostsByFilter = async (filter: Filter, order?: 'ASC' | 'DESC', start?: number): Promise<Pageable<PostWithMeta, number>> => {
   //   return await this.postsDao!.getPostsByFilterV2(filter, order, start);
   // };
   //
-  // getCommentsByHash = async (parent: string | null, order?: 'ASC' | 'DESC', start?: number): Promise<Pageable<PostWithMeta, number>> => {
-  //   return this.postsDao!.getPostsWithParent(parent, order, start);
-  // };
+  getCommentsByHash = async (reference: string | null, order?: 'ASC' | 'DESC', limit = 20,  start = 0): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    const envelopes: DomainEnvelope<DomainPost>[] = [];
+    this.engine.each(`
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+        WHERE p.reference = @reference AND  p.id > @start
+        ORDER BY p.id ${order === 'ASC' ? 'ASC' : 'DESC'}
+        LIMIT @limit
+    `, {
+      start,
+      limit,
+      reference,
+    }, (row) => {
+      envelopes.push(this.mapPost(row, true));
+    });
+
+    if (!envelopes.length) {
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+
+    return new Pageable<DomainEnvelope<DomainPost>, number>(envelopes, envelopes[envelopes.length - 1].message.id);
+  };
 
   private getUserDisplayName = async (username: string): Promise<string|undefined> => {
     const rows: Row[] = [];
