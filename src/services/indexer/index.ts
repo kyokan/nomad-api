@@ -1,9 +1,7 @@
 import DDRPDClient from "ddrp-js/dist/ddrp/DDRPDClient";
-import SECP256k1Signer from "ddrp-js/dist/crypto/signer";
 import {BufferedReader} from "ddrp-js/dist/io/BufferedReader";
 import {BlobReader} from "ddrp-js/dist/ddrp/BlobReader";
-import {isSubdomainBlob, iterateAllEnvelopes, iterateSubdomain} from "ddrp-js/dist/social/streams";
-import {EnvelopeWriter} from "ddrp-js/dist/social/EnvelopeWriter";
+import {iterateAllEnvelopes} from "ddrp-js/dist/social/streams";
 import {Envelope as WireEnvelope} from "ddrp-js/dist/social/Envelope";
 import {Envelope as DomainEnvelope} from 'ddrp-indexer/dist/domain/Envelope';
 import {Post as DomainPost} from 'ddrp-indexer/dist/domain/Post';
@@ -24,7 +22,6 @@ import {Pageable} from 'ddrp-indexer/dist/dao/Pageable';
 import * as path from 'path';
 import * as fs from "fs";
 import logger from "../../util/logger";
-import {promisify} from "util";
 import {UserProfile} from "../../constants";
 import {Express, Request, Response} from "express";
 import {makeResponse} from "../../util/rest";
@@ -36,7 +33,7 @@ import Gridy from '@dicebear/avatars-gridy-sprites';
 import Avataaars from '@dicebear/avatars-avataaars-sprites';
 import Bottts from '@dicebear/avatars-bottts-sprites';
 import Jdenticon from '@dicebear/avatars-jdenticon-sprites';
-import {dotName, isSubdomain, parseUsername, serializeUsername} from "../../util/user";
+import {dotName, parseUsername, serializeUsername} from "../../util/user";
 import {extendFilter, Filter} from "../../util/filter";
 import {trackAttempt} from "../../util/matomo";
 const appDataPath = './build';
@@ -131,6 +128,7 @@ export class IndexerManager {
       trackAttempt('Get Posts by Tags', req);
       const { order, offset, tags } = req.query || {};
       const posts = await this.getPostsByFilter(extendFilter({
+        postedBy: ['*'],
         allowedTags: Array.isArray(tags) ? tags : [tags],
       }), order, offset);
       res.send(makeResponse(posts));
@@ -261,33 +259,7 @@ export class IndexerManager {
     const { tld, subdomain } = parseUsername(username);
     return this.connectionsDao!.getFollowees(tld, subdomain || '', start);
   };
-  //
-  // getUserTimeline = async (username: string, order: 'ASC' | 'DESC' = 'ASC', start = 0): Promise<Pageable<PostWithMeta, number>> => {
-  //   const { tld, subdomain } = parseUsername(username);
-  //
-  //   return await this.getPostsByFilter(extendFilter({
-  //     postedBy: [serializeUsername(subdomain, tld)],
-  //     allowedTags: ['*'],
-  //   }), order, start);
-  // };
-  //
-  // getUserLikes = async (username: string, order?: 'ASC' | 'DESC', start?: number): Promise<Pageable<PostWithMeta, number>> => {
-  //   const { tld, subdomain } = parseUsername(username);
-  //
-  //   return await this.getPostsByFilter(extendFilter({
-  //     likedBy: [serializeUsername(subdomain, tld)],
-  //     allowedTags: ['*'],
-  //   }), order, start);
-  // };
-  //
-  // getUserReplies = async (username: string, order: 'ASC' | 'DESC' = 'ASC', start = 0): Promise<Pageable<PostWithMeta, number>> => {
-  //   const { tld, subdomain } = parseUsername(username);
-  //   return await this.getPostsByFilter(extendFilter({
-  //     repliedBy: [serializeUsername(subdomain, tld)],
-  //     allowedTags: ['*'],
-  //   }), order, start);
-  // };
-  //
+
   getPostByHash = async (refhash: string): Promise<DomainEnvelope<DomainPost> | null>  => {
     return this.postsDao!.getPostByRefhash(refhash);
   };
@@ -309,12 +281,25 @@ export class IndexerManager {
     let likedBySelect = '';
     let likedByQueries = '';
 
+
+    if (allowedTags.includes('*')) {
+      allowedTagsJoin = `
+        JOIN tags_posts tp ON p.id = tp.post_id AND (p.topic NOT LIKE ".%" OR p.topic is NULL)
+      `
+    } else if (allowedTags.length) {
+      allowedTagsJoin = `
+        JOIN (tags_posts tp JOIN tags t ON t.id = tp.tag_id)
+            ON t.name IN (${allowedTags.map(t => `"${t}"`).join(',')}) AND p.id = tp.post_id AND (p.topic NOT LIKE ".%" OR p.topic is NULL)
+      `
+    }
+
     if (postedBy.length) {
       postedBySelect = `
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
         FROM posts p
         JOIN envelopes e ON p.envelope_id = e.id
+        ${allowedTagsJoin}
       `;
 
       if (!postedBy.includes('*')) {
@@ -337,6 +322,7 @@ export class IndexerManager {
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
         FROM posts p
         JOIN envelopes e ON p.envelope_id = e.id
+        ${allowedTagsJoin}
       `;
 
       if (!repliedBy.includes('*')) {
@@ -353,33 +339,13 @@ export class IndexerManager {
       repliedBySelect = repliedBySelect + ' WHERE ' + repliedByQueries
     }
 
-    if (allowedTags.includes('*')) {
-      allowedTagsJoin = `
-        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
-        FROM posts p
-        LEFT JOIN envelopes e ON p.envelope_id = e.id
-        JOIN tags_posts tp ON p.id = tp.post_id
-        WHERE p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL)
-      `
-    } else if (allowedTags.length) {
-      allowedTagsJoin = `
-        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
-        FROM posts p
-        LEFT JOIN envelopes e ON p.envelope_id = e.id
-        JOIN (tags_posts tp JOIN tags t ON t.id = tp.tag_id)
-            ON t.name IN (${allowedTags.map(t => `"${t}"`).join(',')}) AND p.id = tp.post_id
-        WHERE p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL)
-      `
-    }
-
     if (likedBy.length) {
       likedBySelect = `
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
         FROM posts p
         LEFT JOIN envelopes e ON p.envelope_id = e.id
+        ${allowedTagsJoin}
         JOIN (moderations mod JOIN envelopes env ON mod.envelope_id = env.id)
         ON mod.reference = e.refhash
       `;
@@ -399,7 +365,7 @@ export class IndexerManager {
     }
 
     this.engine.each(`
-        ${[postedBySelect, repliedBySelect, allowedTagsJoin, likedBySelect].filter(d => !!d).join('UNION')}
+        ${[postedBySelect, repliedBySelect, likedBySelect].filter(d => !!d).join('UNION')}
         ORDER BY p.id ${order === 'ASC' ? 'ASC' : 'DESC'}
         LIMIT @limit
     `, {
@@ -640,66 +606,8 @@ export class IndexerManager {
       logger.error(`cannot insert message ${serializeUsername(subdomain, tld)}/${wire.guid}`);
       logger.error(err.message);
     }
-
   };
 
-  // private streamSubdomainData = async (source: ReadableBlobStream, tld: string, nameRecord: NameRecord): Promise<void> => {
-  //   let timeout: number;
-  //   logger.info(`streamming subdomain ${nameRecord.name}@${tld}`);
-  //   return new Promise((resolve) => {
-  //     streamSubdomainData(source, nameRecord, async (err, env) => {
-  //       if (timeout) {
-  //         clearTimeout(timeout);
-  //       }
-  //       timeout = setTimeout(resolve, 1000);
-  //       if (err) {
-  //         logger.error(`error streaming ${nameRecord.name}@${tld}`);
-  //         logger.error(err.message);
-  //         return;
-  //       }
-  //
-  //       if (env) {
-  //         logger.info('receiving env');
-  //         try {
-  //           this.insertPost(tld, nameRecord.name, env);
-  //
-  //         } catch (e) {
-  //           logger.error(`error streaming ${nameRecord.name}@${tld}`);
-  //           logger.error(err.message);
-  //           return;
-  //         }
-  //       }
-  //     });
-  //   })
-  // };
-
-  // private streamTLDData = async (source: ReadableBlobStream, tld: string): Promise<void> => {
-  //   let timeout: number;
-  //   return new Promise((resolve) => {
-  //     streamTLDData(source, async (err, env) => {
-  //       if (timeout) {
-  //         clearTimeout(timeout);
-  //       }
-  //       timeout = setTimeout(resolve, 1000);
-  //
-  //       if (err) {
-  //         logger.error(`error streaming ${tld}`);
-  //         logger.error(err.message);
-  //         return;
-  //       }
-  //
-  //       if (env) {
-  //         try {
-  //           this.insertPost(tld, null, env);
-  //         } catch (tldUpsertError) {
-  //           logger.error(`error streaming ${tld}`);
-  //           logger.error(tldUpsertError.message);
-  //           return;
-  //         }
-  //       }
-  //     });
-  //   })
-  // };
 
   findNextOffset = async (tld: string): Promise<number> => {
     let offset = 0;
