@@ -27,7 +27,7 @@ export const parseUsername = (username: string): { tld: string; subdomain: strin
   if (splits.length === 1) {
     return {
       tld: splits[0],
-      subdomain: null,
+      subdomain: '',
     };
   }
 
@@ -40,7 +40,7 @@ export const parseUsername = (username: string): { tld: string; subdomain: strin
 
   return {
     tld: '',
-    subdomain: null,
+    subdomain: '',
   };
 };
 

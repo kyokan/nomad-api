@@ -61,6 +61,8 @@ export class DDRPManager {
   }
 
   startDaemon = async () => {
+    if (process.env.NODE_ENV !== 'production') return;
+
     this.stopDaemon();
 
     if (this.daemon) {

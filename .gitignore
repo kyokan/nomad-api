@@ -1,4 +1,5 @@
 node_modules/
+external/
 build/
 build-doc/
 .idea/
