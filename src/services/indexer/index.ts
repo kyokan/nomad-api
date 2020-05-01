@@ -384,9 +384,7 @@ export class IndexerManager {
 
     return new Pageable<DomainEnvelope<DomainPost>, number>(
       envelopes,
-      order === 'ASC'
-        ? envelopes[envelopes.length - 1].message.id
-        : envelopes[0].message.id
+      envelopes[envelopes.length - 1].message.id,
     );
   };
 
@@ -416,9 +414,7 @@ export class IndexerManager {
 
     return new Pageable<DomainEnvelope<DomainPost>, number>(
       envelopes,
-      order === 'ASC'
-        ? envelopes[envelopes.length - 1].message.id
-        : envelopes[0].message.id
+      envelopes[envelopes.length - 1].message.id,
     );
   };
 
@@ -548,9 +544,7 @@ export class IndexerManager {
 
     return new Pageable<DomainEnvelope<DomainPost>, number>(
       envelopes,
-      order === 'ASC'
-        ? envelopes[envelopes.length - 1].message.id
-        : envelopes[0].message.id
+      envelopes[envelopes.length - 1].message.id,
     );
   };
 
