@@ -608,7 +608,6 @@ export class IndexerManager {
     }
   };
 
-
   findNextOffset = async (tld: string): Promise<number> => {
     let offset = 0;
     let timeout: NodeJS.Timeout;
