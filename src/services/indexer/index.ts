@@ -112,9 +112,9 @@ export class IndexerManager {
     //
     '/filter': async (req: Request, res: Response) =>  {
       trackAttempt('Get Posts by Filter', req);
-      const { order, offset } = req.query || {};
+      const { order, limit, offset } = req.query || {};
       const { filter } = req.body;
-      const post = await this.getPostsByFilter(filter, order, offset);
+      const post = await this.getPostsByFilter(filter, order, limit, offset);
       res.send(makeResponse(post));
     },
 
@@ -126,48 +126,48 @@ export class IndexerManager {
 
     '/tags': async (req: Request, res: Response) => {
       trackAttempt('Get Posts by Tags', req);
-      const { order, offset, tags } = req.query || {};
+      const { order, limit, offset, tags } = req.query || {};
       const posts = await this.getPostsByFilter(extendFilter({
         postedBy: ['*'],
         allowedTags: Array.isArray(tags) ? tags : [tags],
-      }), order, offset);
+      }), order, limit, offset);
       res.send(makeResponse(posts));
     },
 
     '/users/:username/timeline': async (req: Request, res: Response) => {
       trackAttempt('Get Timeline by User', req, req.params.username);
-      const { order, offset } = req.query || {};
+      const { order, limit, offset } = req.query || {};
       const {tld, subdomain} = parseUsername(req.params.username);
       const posts = await this.getPostsByFilter(extendFilter({
         postedBy: [serializeUsername(subdomain, tld)],
-      }), order, offset);
+      }), order, limit, offset);
       res.send(makeResponse(posts));
     },
 
     '/users/:username/likes': async (req: Request, res: Response) => {
       trackAttempt('Get Likes by User', req, req.params.username);
-      const { order, offset } = req.query || {};
+      const { order, limit, offset } = req.query || {};
       const {tld, subdomain} = parseUsername(req.params.username);
       const posts = await this.getPostsByFilter(extendFilter({
         likedBy: [serializeUsername(subdomain, tld)],
-      }), order, offset);
+      }), order, limit, offset);
       res.send(makeResponse(posts));
     },
 
     '/users/:username/comments': async (req: Request, res: Response) => {
       trackAttempt('Get Comments by User', req, req.params.username);
-      const { order, offset } = req.query || {};
+      const { order, limit, offset } = req.query || {};
       const {tld, subdomain} = parseUsername(req.params.username);
       const posts = await this.getPostsByFilter(extendFilter({
         repliedBy: [serializeUsername(subdomain, tld)],
-      }), order, offset);
+      }), order, limit, offset);
       res.send(makeResponse(posts));
     },
 
     '/users/:username/followees': async (req: Request, res: Response) => {
       trackAttempt('Get Followees by User', req, req.params.username);
-      const { order, offset } = req.query || {};
-      const posts = await this.getUserFollowings(req.params.username, order, offset);
+      const { order, limit, offset } = req.query || {};
+      const posts = await this.getUserFollowings(req.params.username, order,  offset);
       res.send(makeResponse(posts));
     },
 
@@ -264,7 +264,7 @@ export class IndexerManager {
     return this.postsDao!.getPostByRefhash(refhash);
   };
 
-  getPostsByFilter = async (f: Filter, order: 'ASC' | 'DESC' = 'DESC', limit= 20, offset = 0): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+  getPostsByFilter = async (f: Filter, order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
     const envelopes: DomainEnvelope<DomainPost>[] = [];
     const {
       postedBy,
@@ -281,6 +281,9 @@ export class IndexerManager {
     let likedBySelect = '';
     let likedByQueries = '';
 
+    const offset = order === 'ASC'
+      ? defaultOffset || 0
+      : defaultOffset || 999999999999999999999;
 
     if (allowedTags.includes('*')) {
       allowedTagsJoin = `
@@ -308,9 +311,9 @@ export class IndexerManager {
             const { tld, subdomain } = parseUsername(username);
             return `(e.tld = "${tld}" AND subdomain = "${subdomain}" AND p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL))`;
           })
-          .join(' OR ')})`;
+          .join(' OR ')} AND p.id ${order === 'DESC' ? '<' : '>'} ${offset})`;
       } else {
-        postedByQueries = `(p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL))`;
+        postedByQueries = `(p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL) AND p.id ${order === 'DESC' ? '<' : '>'} ${offset})`;
       }
 
       postedBySelect = postedBySelect + ' WHERE ' + postedByQueries
@@ -331,9 +334,9 @@ export class IndexerManager {
             const { tld, subdomain } = parseUsername(username);
             return `(e.tld = "${tld}" AND subdomain = "${subdomain}" AND p.reference is not NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL))`;
           })
-          .join(' OR ')})`;
+          .join(' OR ')} AND p.id ${order === 'DESC' ? '<' : '>'} ${offset})`;
       } else {
-        repliedByQueries = `(p.reference is not NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL))`;
+        repliedByQueries = `(p.reference is not NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL) AND p.id ${order === 'DESC' ? '<' : '>'} ${offset})`;
       }
 
       repliedBySelect = repliedBySelect + ' WHERE ' + repliedByQueries
@@ -356,9 +359,9 @@ export class IndexerManager {
             const { tld, subdomain } = parseUsername(username);
             return `(e.tld = "${tld}" AND e.subdomain = "${subdomain}" AND p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL))`;
           })
-          .join(' OR ')})`;
+          .join(' OR ')} AND p.id ${order === 'DESC' ? '<' : '>'} ${offset})`;
       } else {
-        likedByQueries = `(p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL))`;
+        likedByQueries = `(p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL) AND p.id ${order === 'DESC' ? '<' : '>'} ${offset})`;
       }
 
       likedBySelect = likedBySelect + ' WHERE ' + likedByQueries
@@ -369,7 +372,6 @@ export class IndexerManager {
         ORDER BY p.id ${order === 'ASC' ? 'ASC' : 'DESC'}
         LIMIT @limit
     `, {
-      start: offset,
       limit,
     }, (row) => {
       envelopes.push(this.mapPost(row, true));
@@ -388,17 +390,20 @@ export class IndexerManager {
     );
   };
 
-  getCommentsByHash = async (reference: string | null, order?: 'ASC' | 'DESC', limit = 20,  start = 0): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+  getCommentsByHash = async (reference: string | null, order?: 'ASC' | 'DESC', limit = 20,  defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
     const envelopes: DomainEnvelope<DomainPost>[] = [];
+    const offset = order === 'ASC'
+      ? defaultOffset || 0
+      : defaultOffset || 999999999999999999999;
     this.engine.each(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
-        WHERE p.reference = @reference AND (p.topic NOT LIKE ".%" OR p.topic is NULL) AND p.id > @start
+        WHERE p.reference = @reference AND (p.topic NOT LIKE ".%" OR p.topic is NULL) AND p.id ${order === 'DESC' ? '<' : '>'} @start
         ORDER BY p.id ${order === 'ASC' ? 'ASC' : 'DESC'}
         LIMIT @limit
     `, {
-      start,
+      start: offset,
       limit,
       reference,
     }, (row) => {
@@ -517,13 +522,17 @@ export class IndexerManager {
     };
   };
 
-  getPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, offset = 0): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+  getPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
     const envelopes: DomainEnvelope<DomainPost>[] = [];
+    const offset = order === 'ASC'
+      ? defaultOffset || 0
+      : defaultOffset || 999999999999999999999;
+
     this.engine.each(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
-        WHERE (p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL)) AND p.id > @start
+        WHERE (p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL)) AND p.id ${order === 'DESC' ? '<' : '>'} @start
         ORDER BY p.id ${order === 'ASC' ? 'ASC' : 'DESC'}
         LIMIT @limit
     `, {
