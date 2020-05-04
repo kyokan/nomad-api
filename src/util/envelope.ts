@@ -26,8 +26,8 @@ export const mapWireToEnvelope = async (tld: string, wire: WireEnvelope): Promis
   const refhashBuf = await createRefhash(wire, '', tld);
   const refhash = refhashBuf.toString('hex');
 
-  switch (message.type) {
-    case WirePost.TYPE:
+  switch (message.type.toString('utf-8')) {
+    case WirePost.TYPE.toString('utf-8'):
       return new DomainEnvelope(
         0,
         tld,
@@ -38,7 +38,7 @@ export const mapWireToEnvelope = async (tld: string, wire: WireEnvelope): Promis
         mapWirePostToDomainPost(message as WirePost),
         additionalData,
       );
-    case WireConnection.TYPE:
+    case WireConnection.TYPE.toString('utf-8'):
       return new DomainEnvelope(
         0,
         tld,
@@ -49,7 +49,7 @@ export const mapWireToEnvelope = async (tld: string, wire: WireEnvelope): Promis
         mapWireConnectionToDomainConnection(message as WireConnection),
         additionalData,
       );
-    case WireModeration.TYPE:
+    case WireModeration.TYPE.toString('utf-8'):
       return new DomainEnvelope(
         0,
         tld,
@@ -61,7 +61,7 @@ export const mapWireToEnvelope = async (tld: string, wire: WireEnvelope): Promis
         additionalData,
       );
     default:
-      return Promise.reject(new Error('subdomain not supported'));
+      return Promise.reject(new Error(`cannot find message type ${message.type}`));
   }
 };
 

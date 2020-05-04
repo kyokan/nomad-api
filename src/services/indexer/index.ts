@@ -595,19 +595,19 @@ export class IndexerManager {
       const message = wire.message;
       const domainEnvelope = await mapWireToEnvelope(tld, wire);
 
-      switch (message.type) {
-        case Post.TYPE:
+      switch (message.type.toString('utf-8')) {
+        case Post.TYPE.toString('utf-8'):
           return await this.postsDao?.insertPost(domainEnvelope as DomainEnvelope<DomainPost>);
-        case Connection.TYPE:
+        case Connection.TYPE.toString('utf-8'):
           return await this.connectionsDao?.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>);
-        case Moderation.TYPE:
+        case Moderation.TYPE.toString('utf-8'):
           return await this.moderationsDao?.insertModeration(domainEnvelope as DomainEnvelope<DomainModeration>);
         default:
           return;
       }
     } catch (err) {
       logger.error(`cannot insert message ${serializeUsername(subdomain, tld)}/${wire.guid}`);
-      logger.error(err.message);
+      logger.error(err?.message);
     }
   };
 
@@ -704,6 +704,7 @@ export class IndexerManager {
   } {
     const matches = dataString
       .replace('\n', '')
+      // eslint-disable-next-line no-useless-escape
       .match(/^data:([A-Za-z-+\/]+);base64,(.+)$/) || [];
 
     if (matches.length !== 3) {
