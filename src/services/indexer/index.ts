@@ -305,7 +305,7 @@ export class IndexerManager {
 
     if (postedBy.length) {
       postedBySelect = `
-        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
         FROM posts p
         JOIN envelopes e ON p.envelope_id = e.id
@@ -328,7 +328,7 @@ export class IndexerManager {
 
     if (repliedBy.length) {
       repliedBySelect = `
-        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
         FROM posts p
         JOIN envelopes e ON p.envelope_id = e.id
@@ -351,7 +351,7 @@ export class IndexerManager {
 
     if (likedBy.length) {
       likedBySelect = `
-        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
         FROM posts p
         LEFT JOIN envelopes e ON p.envelope_id = e.id
@@ -401,7 +401,7 @@ export class IndexerManager {
       ? defaultOffset || 0
       : defaultOffset || 999999999999999999999;
     this.engine.each(`
-        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
         WHERE p.reference = @reference AND (p.topic NOT LIKE ".%" OR p.topic is NULL) AND p.id ${order === 'DESC' ? '<' : '>'} @start
@@ -532,7 +532,7 @@ export class IndexerManager {
       : defaultOffset || 999999999999999999999;
 
     this.engine.each(`
-        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.guid, e.refhash, e.created_at, p.body,
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
         WHERE (p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL)) AND p.id ${order === 'DESC' ? '<' : '>'} @start
@@ -577,7 +577,7 @@ export class IndexerManager {
       row.envelope_id,
       row.tld,
       row.subdomain,
-      row.guid,
+      row.network_id,
       row.refhash,
       new Date(row.created_at * 1000),
       new DomainPost(
@@ -654,11 +654,13 @@ export class IndexerManager {
     logger.info(`streaming ${tld}`, { tld });
 
     try {
-      const merkleRoot = await this.client.getBlobInfo(tld);
+      const blobInfo = await this.client.getBlobInfo(tld);
       const row = await this.getBlobInfo(tld);
-
       // @ts-ignore
-      if (row && row.merkleRoot === merkleRoot.toString('hex')) return;
+      if (row && row.merkleRoot === blobInfo.merkleRoot.toString('hex')) {
+        logger.info(`${tld} already streamed`, row);
+        return;
+      }
 
       const r = new BufferedReader(new BlobReader(tld, this.client), 1024 * 1024);
       const isSubdomain = await this.isSubdomainBlob(r);
@@ -720,8 +722,9 @@ export class IndexerManager {
     let timeout: Timeout | undefined;
     return new Promise((resolve, reject) => {
       logger.info(`scan subdomain data`, { tld });
-
-      timeout = setTimeout(() => reject(new Error('timeout')), 5000);
+      timeout = setTimeout(() => {
+        resolve();
+      }, 5000);
 
       iterateAllSubdomains(r, (err, sub) => {
         if (timeout) clearTimeout(timeout);
@@ -758,7 +761,9 @@ export class IndexerManager {
     return new Promise((resolve, reject) => {
       logger.info(`scan blob data`, { tld });
 
-      timeout = setTimeout(() => reject(new Error('timeout')), 5000);
+      timeout = setTimeout(() => {
+        resolve();
+      }, 5000);
 
       iterateAllEnvelopes(r, (err, env) => {
         if (timeout) clearTimeout(timeout);
@@ -843,18 +848,20 @@ export class IndexerManager {
   }
 
   async streamAllBlobs(): Promise<void> {
-    await this.streamBlobInfo('', undefined, true);
+    await this.streamBlobInfo();
 
-    // const tlds = Object.keys(TLD_CACHE);
-    // // const tlds = ['9325']
-    // for (let i = 0; i < tlds.length; i = i + 19) {
-    //   const selectedTLDs = tlds.slice(i, i + 19).filter(tld => !!tld);
-    //   await this.streamNBlobs(selectedTLDs);
-    // }
+    const tlds = Object.keys(TLD_CACHE);
+    // const tlds = ['9325']
+    for (let i = 0; i < tlds.length; i = i + 19) {
+      const selectedTLDs = tlds.slice(i, i + 19).filter(tld => !!tld);
+      await this.streamNBlobs(selectedTLDs);
+    }
+
+    await this.streamBlobInfo('', undefined, true);
   }
 
   private async streamNBlobs(tlds: string[]): Promise<void[]> {
-    return Promise.all(tlds.map(async tld => this.streamBlob(dotName(tld))));
+    return Promise.all(tlds.map(async tld => this.maybeStreamBlob(dotName(tld))));
   }
 
   streamBlobInfo = async (start = '', defaultTimeout?: number, shouldStreamContent?: boolean): Promise<number> => {
@@ -868,13 +875,7 @@ export class IndexerManager {
         if (timeout) clearTimeout(timeout);
 
         if (shouldStreamContent) {
-          const row = await this.getBlobInfo(info.name);
-
-          // @ts-ignore
-          if (row && row.merkleRoot !== info.merkleRoot.toString('hex')) {
-            await this.streamBlob(info.name);
-            await this.insertOrUpdateBlobInfo(info.name, info.merkleRoot);
-          }
+          await this.insertOrUpdateBlobInfo(info.name, info.merkleRoot);
         }
 
         TLD_CACHE[info.name] = info.merkleRoot;
