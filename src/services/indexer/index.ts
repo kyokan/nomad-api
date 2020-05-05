@@ -1,8 +1,9 @@
 import DDRPDClient from "ddrp-js/dist/ddrp/DDRPDClient";
 import {BufferedReader} from "ddrp-js/dist/io/BufferedReader";
 import {BlobReader} from "ddrp-js/dist/ddrp/BlobReader";
-import {iterateAllEnvelopes} from "ddrp-js/dist/social/streams";
+import {iterateAllEnvelopes, isSubdomainBlob, iterateAllSubdomains} from "ddrp-js/dist/social/streams";
 import {Envelope as WireEnvelope} from "ddrp-js/dist/social/Envelope";
+import {Subdomain} from "ddrp-js/dist/social/Subdomain";
 import {Envelope as DomainEnvelope} from 'ddrp-indexer/dist/domain/Envelope';
 import {Post as DomainPost} from 'ddrp-indexer/dist/domain/Post';
 import {
@@ -38,7 +39,9 @@ import {extendFilter, Filter} from "../../util/filter";
 import {trackAttempt} from "../../util/matomo";
 const appDataPath = './build';
 const dbPath = path.join(appDataPath, 'nomad.db');
+const namedbPath = path.join(appDataPath, 'names.db');
 import {mapWireToEnvelope} from "../../util/envelope";
+import Timeout = NodeJS.Timeout;
 
 
 const SPRITE_TO_SPRITES: {[sprite: string]: any} = {
@@ -70,14 +73,18 @@ export class IndexerManager {
   moderationsDao?: ModerationsDAOImpl;
   client: DDRPDClient;
   engine: SqliteEngine;
+  nameDB: SqliteEngine;
   dbPath: string;
+  namedbPath: string;
   resourcePath: string;
 
-  constructor(opts?: { dbPath?: string; resourcePath?: string }) {
+  constructor(opts?: { dbPath?: string; namedbPath?: string; resourcePath?: string }) {
     const client = new DDRPDClient('127.0.0.1:9098');
     this.client = client;
     this.engine = new SqliteEngine(opts?.dbPath || dbPath);
+    this.nameDB = new SqliteEngine(opts?.namedbPath || namedbPath);
     this.dbPath = opts?.dbPath || dbPath;
+    this.namedbPath = opts?.namedbPath || namedbPath;
     this.resourcePath = opts?.resourcePath || 'resources';
   }
 
@@ -589,11 +596,15 @@ export class IndexerManager {
   }
 
 
-  insertPost = async (tld: string, subdomain: string | null, wire: WireEnvelope): Promise<any> => {
+  insertPost = async (tld: string, wire: WireEnvelope): Promise<any> => {
+    const nameIndex = wire.nameIndex;
+    const sub = await this.getSubdomainByIndex(nameIndex, tld);
+    const subdomain = sub?.name || '';
+    logger.info(`inserting message ${serializeUsername(subdomain, tld)}/${wire.id}`);
+
     try {
-      logger.info(`inserting message ${serializeUsername(subdomain, tld)}/${wire.guid}`);
       const message = wire.message;
-      const domainEnvelope = await mapWireToEnvelope(tld, wire);
+      const domainEnvelope = await mapWireToEnvelope(tld, subdomain, wire);
 
       switch (message.type.toString('utf-8')) {
         case Post.TYPE.toString('utf-8'):
@@ -606,7 +617,7 @@ export class IndexerManager {
           return;
       }
     } catch (err) {
-      logger.error(`cannot insert message ${serializeUsername(subdomain, tld)}/${wire.guid}`);
+      logger.error(`cannot insert message ${serializeUsername(subdomain, tld)}/${wire.id}`);
       logger.error(err?.message);
     }
   };
@@ -616,7 +627,7 @@ export class IndexerManager {
     let timeout: NodeJS.Timeout;
     const r = new BufferedReader(new BlobReader(tld, this.client), 1024 * 1024);
     return new Promise((resolve, reject) => {
-      timeout = setTimeout(() => resolve(offset), 500);
+      timeout = setTimeout(() => resolve(offset), 5000);
       iterateAllEnvelopes(r, (err, env) => {
         if (err) {
           reject(err);
@@ -633,55 +644,144 @@ export class IndexerManager {
 
         // @ts-ignore
         offset = r.off;
-        timeout = setTimeout(() => resolve(offset), 500);
+        timeout = setTimeout(() => resolve(offset), 5000);
         return true;
       });
     });
   };
 
-  streamBlob = async (tld: string): Promise<void> => {
-    logger.info(`Reading ${tld}`, { tld });
+  maybeStreamBlob = async (tld: string): Promise<void> => {
+    logger.info(`streaming ${tld}`, { tld });
 
     try {
+      const merkleRoot = await this.client.getBlobInfo(tld);
+      const row = await this.getBlobInfo(tld);
+
+      // @ts-ignore
+      if (row && row.merkleRoot === merkleRoot.toString('hex')) return;
+
       const r = new BufferedReader(new BlobReader(tld, this.client), 1024 * 1024);
+      const isSubdomain = await this.isSubdomainBlob(r);
 
-      iterateAllEnvelopes(r, (err, env) => {
-        if (err) {
-          logger.error(err.message);
-          return false;
-        }
+      if (isSubdomain) {
+        await this.scanSubdomainData(r, tld);
+      }
 
-        if (env === null) {
-          return false;
-        }
-
-        if (!env.nameIndex) {
-          this.insertPost(tld, null, env);
-        }
-
-        return true;
-      });
+      this.scanBlobData(r, tld);
     } catch (e) {
-      logger.error(`cannot read ${tld}`);
-      logger.error(e.message);
+      logger.error(e);
       return Promise.reject(e);
     }
   };
 
-  // private isSubdomainBlob = (r: BufferedReader): Promise<boolean> => {
-  //   return new Promise((resolve, reject) => {
-  //     isSubdomainBlob(r, (err, res) => {
-  //       if (err) {
-  //         reject(err);
-  //         logger.error(err.message);
-  //         return;
-  //       }
-  //
-  //       logger.info(`Subdomain blob`, { isSubdomainBlob: !!res });
-  //       resolve(!!res);
-  //     });
-  //   });
-  // };
+  streamBlob = async (tld: string): Promise<void> => {
+    logger.info(`streaming ${tld}`, { tld });
+
+    try {
+      const r = new BufferedReader(new BlobReader(tld, this.client), 1024 * 1024);
+      const isSubdomain = await this.isSubdomainBlob(r);
+
+      if (isSubdomain) {
+       await this.scanSubdomainData(r, tld);
+      }
+
+      this.scanBlobData(r, tld);
+    } catch (e) {
+      logger.error(e);
+      return Promise.reject(e);
+    }
+  };
+
+  private isSubdomainBlob = (r: BufferedReader): Promise<boolean> => {
+    let timeout: Timeout | undefined;
+    return new Promise((resolve, reject) => {
+      timeout = setTimeout(() => resolve(false), 5000);
+
+      try {
+        isSubdomainBlob(r, (err, res) => {
+          if (timeout) clearTimeout(timeout);
+
+          if (err) {
+            reject(err);
+            logger.error(err.message);
+            return;
+          }
+
+          resolve(!!res);
+        });
+      } catch (e) {
+        if (timeout) clearTimeout(timeout);
+        reject(e);
+      }
+    });
+  };
+
+  private scanSubdomainData = (r: BufferedReader, tld: string): Promise<void> => {
+    let timeout: Timeout | undefined;
+    return new Promise((resolve, reject) => {
+      logger.info(`scan subdomain data`, { tld });
+
+      timeout = setTimeout(() => reject(new Error('timeout')), 5000);
+
+      iterateAllSubdomains(r, (err, sub) => {
+        if (timeout) clearTimeout(timeout);
+
+        if (err) {
+          logger.error(err);
+          reject(err);
+          return false;
+        }
+
+        if (sub === null) {
+          resolve();
+          return false;
+        }
+
+        logger.info(`scanned subdomain data`, { name: sub.name, index: sub.index });
+
+        this.insertOrUpdateSubdomain(
+          sub.index,
+          tld,
+          sub.publicKey.toString('hex'),
+          sub.name,
+        );
+
+        timeout = setTimeout(() => resolve(), 500);
+        return true;
+      });
+    });
+  };
+
+  private scanBlobData = (r: BufferedReader, tld: string) => {
+    let timeout: Timeout | undefined;
+
+    return new Promise((resolve, reject) => {
+      logger.info(`scan blob data`, { tld });
+
+      timeout = setTimeout(() => reject(new Error('timeout')), 5000);
+
+      iterateAllEnvelopes(r, (err, env) => {
+        if (timeout) clearTimeout(timeout);
+
+        if (err) {
+          logger.error(err);
+          reject(err);
+          return false;
+        }
+
+        if (env === null) {
+          resolve();
+          return false;
+        }
+
+        this.insertPost(tld, env);
+        logger.info('scanned blob data', { tld, id: env.id });
+        return true;
+      });
+    });
+
+
+  };
 
   async start () {
     const exists = await this.dbExists();
@@ -693,6 +793,7 @@ export class IndexerManager {
     }
 
     await this.engine.open();
+    await this.nameDB.open();
     this.postsDao = new PostsDAOImpl(this.engine);
     this.connectionsDao = new ConnectionsDAOImpl(this.engine);
     this.moderationsDao = new ModerationsDAOImpl(this.engine);
@@ -730,8 +831,10 @@ export class IndexerManager {
   }
 
   private async copyDB () {
-    const src = path.join(this.resourcePath, 'nomad.db');
-    await fs.promises.copyFile(src, this.dbPath);
+    const nomadSrc = path.join(this.resourcePath, 'nomad.db');
+    const nameSrc = path.join(this.resourcePath, 'names.db');
+    await fs.promises.copyFile(nomadSrc, this.dbPath);
+    await fs.promises.copyFile(nameSrc, this.namedbPath);
   }
 
   async readAllTLDs(): Promise<string[]> {
@@ -740,40 +843,149 @@ export class IndexerManager {
   }
 
   async streamAllBlobs(): Promise<void> {
-    await this.streamBlobInfo();
+    await this.streamBlobInfo('', undefined, true);
 
-    const tlds = Object.keys(TLD_CACHE);
-    // const tlds = ['9325']
-    for (let i = 0; i < tlds.length; i = i + 19) {
-      const selectedTLDs = tlds.slice(i, i + 19).filter(tld => !!tld);
-      await this.streamNBlobs(selectedTLDs);
-    }
+    // const tlds = Object.keys(TLD_CACHE);
+    // // const tlds = ['9325']
+    // for (let i = 0; i < tlds.length; i = i + 19) {
+    //   const selectedTLDs = tlds.slice(i, i + 19).filter(tld => !!tld);
+    //   await this.streamNBlobs(selectedTLDs);
+    // }
   }
 
   private async streamNBlobs(tlds: string[]): Promise<void[]> {
     return Promise.all(tlds.map(async tld => this.streamBlob(dotName(tld))));
   }
 
-  streamBlobInfo = async (start = '', defaultTimeout?: number): Promise<number> => {
+  streamBlobInfo = async (start = '', defaultTimeout?: number, shouldStreamContent?: boolean): Promise<number> => {
     let timeout: number | undefined = defaultTimeout;
 
     return new Promise((resolve, reject) => {
       let lastUpdate = start;
       let counter = 0;
 
-      this.client.streamBlobInfo(start, 20, async info => {
+      this.client.streamBlobInfo(start, 100, async (info) => {
         if (timeout) clearTimeout(timeout);
-        TLD_CACHE[info.name] = info.name;
+
+        if (shouldStreamContent) {
+          const row = await this.getBlobInfo(info.name);
+
+          // @ts-ignore
+          if (row && row.merkleRoot !== info.merkleRoot.toString('hex')) {
+            await this.streamBlob(info.name);
+            await this.insertOrUpdateBlobInfo(info.name, info.merkleRoot);
+          }
+        }
+
+        TLD_CACHE[info.name] = info.merkleRoot;
         lastUpdate = info.name;
         counter++;
-        timeout = setTimeout(resolve, 500);
-        if (counter % 20 === 0) {
+
+        timeout = setTimeout(resolve, 0);
+        if (counter % 100 === 0) {
           await this.streamBlobInfo(lastUpdate, timeout);
         }
       });
 
       timeout = setTimeout(resolve, 500);
     })
+  }
+
+  private insertOrUpdateSubdomain = async (index: number, tld: string, publicKey: string, name: string): Promise<void> => {
+    const row = await this.getSubdomainByIndex(index, tld);
+    if (row) {
+      if (row.name !== name || row.publicKey.toString('hex') != publicKey) {
+        return this.nameDB.exec(`
+          UPDATE names
+          SET
+            name = @name,
+            public_key = @publicKey
+          WHERE
+            "index" = @index @ tld = @tld
+        `, {
+            name,
+            index,
+            publicKey,
+            tld,
+          });
+        }
+
+    } else {
+      return this.nameDB.exec(`
+        INSERT INTO names (name, "index", public_key, tld)
+        VALUES (@name, @index, @publicKey, @tld)
+      `, {
+        name,
+        index,
+        publicKey,
+        tld,
+      });
+    }
+  };
+
+  private getSubdomainByIndex = (index: number, tld: string): Subdomain | null => {
+    const row = this.nameDB.first(`
+      SELECT * FROM names
+      WHERE "index" = @index AND tld = @tld
+    `, {
+      index,
+      tld,
+    });
+
+    if (!row) return null;
+
+    return {
+      name: row?.name,
+      index: row?.index,
+      publicKey: Buffer.from(row?.public_key, 'hex'),
+    }
+  };
+
+  private insertOrUpdateBlobInfo = async (tld: string, merkleRoot: string): Promise<void> => {
+    const row = await this.getBlobInfo(tld);
+
+    if (row) {
+      if (row.merkleRoot !== merkleRoot) {
+        return this.nameDB.exec(`
+          UPDATE blobs
+          SET
+            merkleRoot = @merkleRoot,
+            last_scanned_at = @lastScannedAt
+          WHERE tld = @tld
+        `, {
+          merkleRoot,
+          lastScannedAt: Date.now(),
+          tld,
+        });
+      }
+
+    } else {
+      return this.nameDB.exec(`
+        INSERT INTO blobs (tld, merkleRoot, last_scanned_at)
+        VALUES (@tld, @merkleRoot, @lastScannedAt)
+      `, {
+        merkleRoot,
+        lastScannedAt: Date.now(),
+        tld,
+      });
+    }
+  };
+
+  private getBlobInfo = (tld: string): { tld: string; merkleRoot: string; lastScannedAt: string} | null => {
+    const row = this.nameDB.first(`
+      SELECT * FROM blobs
+      WHERE tld = @tld
+    `, {
+      tld,
+    });
+
+    if (!row) return null;
+
+    return {
+      tld: row?.tld,
+      merkleRoot: row?.merkleRoot,
+      lastScannedAt: row?.last_scanned_at,
+    };
   }
 }
 

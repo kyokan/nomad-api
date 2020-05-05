@@ -21,7 +21,7 @@ let watchInterval: Timeout;
   await indexer.start();
 
   // Ingest on every blob sync
-  ddrp.onNameSynced(indexer.streamBlob);
+  ddrp.onNameSynced(indexer.maybeStreamBlob);
 
   const app = server.app;
 
@@ -58,7 +58,7 @@ let watchInterval: Timeout;
   });
 
   app.post('/services/ingest', async function ingestHandler(req, res) {
-    if (req.headers['service-key'] !== SERVICE_KEY) {
+    if (SERVICE_KEY && req.headers['service-key'] !== SERVICE_KEY) {
       res.status(401).send(makeResponse('unauthorized', true));
       return;
     }

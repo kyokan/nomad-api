@@ -9,19 +9,14 @@ import {Post as DomainPost} from 'ddrp-indexer/dist/domain/Post';
 import {Connection as DomainConnection} from 'ddrp-indexer/dist/domain/Connection';
 import {Moderation as DomainModeration} from 'ddrp-indexer/dist/domain/Moderation';
 
-export const mapWireToEnvelope = async (tld: string, wire: WireEnvelope): Promise<DomainEnvelope<DomainPost|DomainConnection|DomainModeration>> => {
+export const mapWireToEnvelope = async (tld: string, subdomain: string, wire: WireEnvelope): Promise<DomainEnvelope<DomainPost|DomainConnection|DomainModeration>> => {
   const {
-    nameIndex,
     timestamp,
-    guid,
+    id,
     message,
     // signature,
     additionalData,
   } = wire;
-
-  if (nameIndex) {
-    return Promise.reject(new Error('subdomain not supported'));
-  }
 
   const refhashBuf = await createRefhash(wire, '', tld);
   const refhash = refhashBuf.toString('hex');
@@ -31,8 +26,8 @@ export const mapWireToEnvelope = async (tld: string, wire: WireEnvelope): Promis
       return new DomainEnvelope(
         0,
         tld,
-        '',
-        guid,
+        subdomain,
+        id,
         refhash,
         timestamp,
         mapWirePostToDomainPost(message as WirePost),
@@ -42,8 +37,8 @@ export const mapWireToEnvelope = async (tld: string, wire: WireEnvelope): Promis
       return new DomainEnvelope(
         0,
         tld,
-        '',
-        guid,
+        subdomain,
+        id,
         refhash,
         timestamp,
         mapWireConnectionToDomainConnection(message as WireConnection),
@@ -53,8 +48,8 @@ export const mapWireToEnvelope = async (tld: string, wire: WireEnvelope): Promis
       return new DomainEnvelope(
         0,
         tld,
-        '',
-        guid,
+        subdomain,
+        id,
         refhash,
         timestamp,
         mapWireModerationToDomainModeration(message as WireModeration),
