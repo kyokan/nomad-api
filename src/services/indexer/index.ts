@@ -41,8 +41,6 @@ const appDataPath = './build';
 const dbPath = path.join(appDataPath, 'nomad.db');
 const namedbPath = path.join(appDataPath, 'names.db');
 import {mapWireToEnvelope} from "../../util/envelope";
-import Timeout = NodeJS.Timeout;
-
 
 const SPRITE_TO_SPRITES: {[sprite: string]: any} = {
   identicon: Identicon,
@@ -364,7 +362,7 @@ export class IndexerManager {
         likedByQueries = `(${likedBy
           .map(username => {
             const { tld, subdomain } = parseUsername(username);
-            return `(e.tld = "${tld}" AND e.subdomain = "${subdomain}" AND p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL))`;
+            return `(env.tld = "${tld}" AND env.subdomain = "${subdomain}" AND p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL))`;
           })
           .join(' OR ')} AND p.id ${order === 'DESC' ? '<' : '>'} ${offset})`;
       } else {
@@ -629,22 +627,21 @@ export class IndexerManager {
     return new Promise((resolve, reject) => {
       timeout = setTimeout(() => resolve(offset), 5000);
       iterateAllEnvelopes(r, (err, env) => {
+        if (timeout) clearTimeout(timeout);
+
         if (err) {
           reject(err);
           return false;
         }
 
         if (env === null) {
-          if (timeout) clearTimeout(timeout);
           resolve(offset);
           return false;
         }
 
-        if (timeout) clearTimeout(timeout);
-
         // @ts-ignore
         offset = r.off;
-        timeout = setTimeout(() => resolve(offset), 5000);
+        timeout = setTimeout(() => resolve(offset), 100);
         return true;
       });
     });
@@ -655,9 +652,10 @@ export class IndexerManager {
 
     try {
       const blobInfo = await this.client.getBlobInfo(tld);
-      const row = await this.getBlobInfo(tld);
       // @ts-ignore
-      if (row && row.merkleRoot === blobInfo.merkleRoot.toString('hex')) {
+      const lastMerkle = blobInfo.merkleRoot.toString('hex');
+      const row = await this.getBlobInfo(tld);
+      if (row && row.merkleRoot === lastMerkle) {
         logger.info(`${tld} already streamed`, row);
         return;
       }
@@ -670,9 +668,11 @@ export class IndexerManager {
       }
 
       this.scanBlobData(r, tld);
+
+      await this.insertOrUpdateBlobInfo(tld, lastMerkle);
     } catch (e) {
       logger.error(e);
-      return Promise.reject(e);
+      // return Promise.reject(e);
     }
   };
 
@@ -690,12 +690,12 @@ export class IndexerManager {
       this.scanBlobData(r, tld);
     } catch (e) {
       logger.error(e);
-      return Promise.reject(e);
+      // return Promise.reject(e);
     }
   };
 
   private isSubdomainBlob = (r: BufferedReader): Promise<boolean> => {
-    let timeout: Timeout | undefined;
+    let timeout: any | undefined;
     return new Promise((resolve, reject) => {
       timeout = setTimeout(() => resolve(false), 5000);
 
@@ -719,7 +719,7 @@ export class IndexerManager {
   };
 
   private scanSubdomainData = (r: BufferedReader, tld: string): Promise<void> => {
-    let timeout: Timeout | undefined;
+    let timeout: any | undefined;
     return new Promise((resolve, reject) => {
       logger.info(`scan subdomain data`, { tld });
       timeout = setTimeout(() => {
@@ -756,7 +756,7 @@ export class IndexerManager {
   };
 
   private scanBlobData = (r: BufferedReader, tld: string) => {
-    let timeout: Timeout | undefined;
+    let timeout: any | undefined;
 
     return new Promise((resolve, reject) => {
       logger.info(`scan blob data`, { tld });
@@ -942,6 +942,35 @@ export class IndexerManager {
     }
   };
 
+  getNameIndexBySubdomain = (username: string, tld: string): number => {
+    const row = this.nameDB.first(`
+      SELECT "index" FROM names n
+      WHERE name = @username AND tld = @tld
+    `, {
+      username,
+      tld,
+    });
+
+    if (!row) return 0;
+
+    return row.index;
+  };
+
+  getNextNeworkId = (username: string, tld: string): number => {
+    const row = this.engine.first(`
+      SELECT network_id FROM envelopes
+      WHERE tld = @tld AND subdomain = @username
+      ORDER BY network_id DESC
+    `, {
+      username,
+      tld,
+    });
+
+    if (!row) return 0;
+
+    return 1 + Number(row.network_id);
+  };
+
   private insertOrUpdateBlobInfo = async (tld: string, merkleRoot: string): Promise<void> => {
     const row = await this.getBlobInfo(tld);
 
@@ -959,7 +988,6 @@ export class IndexerManager {
           tld,
         });
       }
-
     } else {
       return this.nameDB.exec(`
         INSERT INTO blobs (tld, merkleRoot, last_scanned_at)

@@ -20,8 +20,9 @@ export const mapWireToEnvelope = async (tld: string, subdomain: string, wire: Wi
 
   const refhashBuf = await createRefhash(wire, '', tld);
   const refhash = refhashBuf.toString('hex');
+  const msgType = message.type.toString('utf-8');
 
-  switch (message.type.toString('utf-8')) {
+  switch (msgType) {
     case WirePost.TYPE.toString('utf-8'):
       return new DomainEnvelope(
         0,
@@ -56,7 +57,7 @@ export const mapWireToEnvelope = async (tld: string, subdomain: string, wire: Wi
         additionalData,
       );
     default:
-      return Promise.reject(new Error(`cannot find message type ${message.type}`));
+      return Promise.reject(new Error(`cannot find message type ${msgType}`));
   }
 };
 
