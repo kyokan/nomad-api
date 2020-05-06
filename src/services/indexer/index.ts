@@ -622,7 +622,7 @@ export class IndexerManager {
 
   findNextOffset = async (tld: string): Promise<number> => {
     let offset = 0;
-    let timeout: NodeJS.Timeout;
+    let timeout: any;
     const r = new BufferedReader(new BlobReader(tld, this.client), 1024 * 1024);
     return new Promise((resolve, reject) => {
       timeout = setTimeout(() => resolve(offset), 5000);
@@ -660,14 +660,17 @@ export class IndexerManager {
         return;
       }
 
-      const r = new BufferedReader(new BlobReader(tld, this.client), 1024 * 1024);
+      const br = new BlobReader(tld, this.client);
+      const r = new BufferedReader(br, 1024 * 1024);
       const isSubdomain = await this.isSubdomainBlob(r);
 
       if (isSubdomain) {
         await this.scanSubdomainData(r, tld);
+        this.scanBlobData(r, tld);
+      } else {
+        const newBR = new BufferedReader(new BlobReader(tld, this.client), 1024 * 1024);
+        this.scanBlobData(newBR, tld);
       }
-
-      this.scanBlobData(r, tld);
 
       await this.insertOrUpdateBlobInfo(tld, lastMerkle);
     } catch (e) {
