@@ -41,6 +41,7 @@ const appDataPath = './build';
 const dbPath = path.join(appDataPath, 'nomad.db');
 const namedbPath = path.join(appDataPath, 'names.db');
 import {mapWireToEnvelope} from "../../util/envelope";
+import crypto from 'crypto';
 
 const SPRITE_TO_SPRITES: {[sprite: string]: any} = {
   identicon: Identicon,
@@ -959,19 +960,20 @@ export class IndexerManager {
     return row.index;
   };
 
-  getNextNeworkId = (username: string, tld: string): number => {
-    const row = this.engine.first(`
-      SELECT network_id FROM envelopes
-      WHERE tld = @tld AND subdomain = @username
-      ORDER BY network_id DESC
-    `, {
-      username,
-      tld,
-    });
-
-    if (!row) return 0;
-
-    return 1 + Number(row.network_id);
+  getNextNeworkId = (username: string, tld: string): string => {
+    return crypto.randomBytes(8).toString('hex');
+    // const row = this.engine.first(`
+    //   SELECT network_id FROM envelopes
+    //   WHERE tld = @tld AND subdomain = @username
+    //   ORDER BY network_id DESC
+    // `, {
+    //   username,
+    //   tld,
+    // });
+    //
+    // if (!row) return 0;
+    //
+    // return 1 + Number(row.network_id);
   };
 
   private insertOrUpdateBlobInfo = async (tld: string, merkleRoot: string): Promise<void> => {
