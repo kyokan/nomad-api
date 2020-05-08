@@ -291,11 +291,12 @@ export class IndexerManager {
       ? defaultOffset || 0
       : defaultOffset || 999999999999999999999;
 
-    if (allowedTags.includes('*')) {
-      allowedTagsJoin = `
-        JOIN tags_posts tp ON p.id = tp.post_id AND (p.topic NOT LIKE ".%" OR p.topic is NULL)
-      `
-    } else if (allowedTags.length) {
+    // if (allowedTags.includes('*')) {
+    //   allowedTagsJoin = `
+    //     JOIN tags_posts tp ON p.id = tp.post_id AND (p.topic NOT LIKE ".%" OR p.topic is NULL)
+    //   `
+    // } else
+    if (allowedTags.length && !allowedTags.includes('*')) {
       allowedTagsJoin = `
         JOIN (tags_posts tp JOIN tags t ON t.id = tp.tag_id)
             ON t.name IN (${allowedTags.map(t => `"${t}"`).join(',')}) AND p.id = tp.post_id AND (p.topic NOT LIKE ".%" OR p.topic is NULL)
