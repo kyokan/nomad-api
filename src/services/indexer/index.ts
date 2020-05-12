@@ -177,6 +177,13 @@ export class IndexerManager {
       res.send(makeResponse(posts));
     },
 
+    '/users/:username/followers': async (req: Request, res: Response) => {
+      trackAttempt('Get Followers by User', req, req.params.username);
+      const { order, limit, offset } = req.query || {};
+      const posts = await this.getUserFollowers(req.params.username, order,  offset);
+      res.send(makeResponse(posts));
+    },
+
     '/users/:username/blockees': async (req: Request, res: Response) => {
       trackAttempt('Get Blockees by User', req, req.params.username);
       const { order, offset } = req.query || {};
@@ -250,6 +257,7 @@ export class IndexerManager {
     app.get('/users/:username/likes', this.handlers['/users/:username/likes']);
     app.get('/users/:username/comments', this.handlers['/users/:username/comments']);
     app.get('/users/:username/followees', this.handlers['/users/:username/followees']);
+    app.get('/users/:username/followers', this.handlers['/users/:username/followers']);
     app.get('/users/:username/blockees', this.handlers['/users/:username/blockees']);
     app.get('/users/:username/profile', this.handlers['/users/:username/profile']);
     app.get('/avatars/:sprite/:seed.svg', this.handlers['/avatars/:sprite/:seed.svg']);
@@ -264,6 +272,11 @@ export class IndexerManager {
   getUserFollowings = async (username: string, order: 'ASC' | 'DESC' = 'ASC', start = 0): Promise<Pageable<DomainFollow, number>> => {
     const { tld, subdomain } = parseUsername(username);
     return this.connectionsDao!.getFollowees(tld, subdomain || '', start);
+  };
+
+  getUserFollowers = async (username: string, order: 'ASC' | 'DESC' = 'ASC', start = 0): Promise<Pageable<DomainFollow, number>> => {
+    const { tld, subdomain } = parseUsername(username);
+    return this.connectionsDao!.getFollowers(tld, subdomain || '', start);
   };
 
   getPostByHash = async (refhash: string): Promise<DomainEnvelope<DomainPost> | null>  => {
@@ -508,6 +521,69 @@ export class IndexerManager {
     return displayName?.reference || '';
   };
 
+  private getFollowingCounts = async (username: string): Promise<number> => {
+    const { tld, subdomain } = parseUsername(username);
+
+    const followings = this.engine.first(`
+        SELECT COUNT(*)
+        FROM connections c
+        JOIN envelopes e ON c.envelope_id = e.id
+        WHERE e.tld = @tld AND e.subdomain = @subdomain AND c.connection_type = "FOLLOW"
+    `, {
+      tld: dotName(tld),
+      subdomain,
+    });
+
+    return followings ? followings['COUNT(*)'] : 0;
+  };
+
+  private getFollowerCounts = async (username: string): Promise<number> => {
+    const { tld, subdomain } = parseUsername(username);
+
+    const followers = this.engine.first(`
+        SELECT COUNT(*)
+        FROM connections c
+        JOIN envelopes e ON c.envelope_id = e.id
+        WHERE c.tld = @tld AND c.subdomain = @subdomain AND c.connection_type = "FOLLOW"
+    `, {
+      tld: dotName(tld),
+      subdomain,
+    });
+
+    return followers ? followers['COUNT(*)'] : 0;
+  };
+
+  private getBlockingCounts = async (username: string): Promise<number> => {
+    const { tld, subdomain } = parseUsername(username);
+
+    const blockings = this.engine.first(`
+        SELECT COUNT(*)
+        FROM connections c
+        JOIN envelopes e ON c.envelope_id = e.id
+        WHERE e.tld = @tld AND e.subdomain = @subdomain AND c.connection_type = "BLOCK"
+    `, {
+      tld: dotName(tld),
+      subdomain,
+    });
+
+    return blockings ? blockings['COUNT(*)'] : 0;
+  };
+
+  private getBlockerCounts = async (username: string): Promise<number> => {
+    const { tld, subdomain } = parseUsername(username);
+
+    const blockers = this.engine.first(`
+        SELECT COUNT(*)
+        FROM connections c
+        JOIN envelopes e ON c.envelope_id = e.id
+        WHERE c.tld = @tld AND c.subdomain = @subdomain AND c.connection_type = "BLOCK"
+    `, {
+      tld: dotName(tld),
+      subdomain,
+    });
+
+    return blockers ? blockers['COUNT(*)'] : 0;
+  };
 
   getUserProfile = async (username: string): Promise<UserProfile> => {
     const profilePicture = await this.getUserProfilePicture(username) || '';
@@ -515,6 +591,10 @@ export class IndexerManager {
     const bio = await this.getUserBio(username) || '';
     const avatarType = await this.getUserAvatarType(username) || '';
     const displayName = await this.getUserDisplayName(username) || '';
+    const followings = await this.getFollowingCounts(username);
+    const followers = await this.getFollowerCounts(username);
+    const blockings = await this.getBlockingCounts(username);
+    const blockers = await this.getBlockerCounts(username);
 
     return {
       profilePicture,
@@ -522,6 +602,10 @@ export class IndexerManager {
       bio,
       avatarType,
       displayName,
+      followings,
+      followers,
+      blockings,
+      blockers,
     };
   };
 

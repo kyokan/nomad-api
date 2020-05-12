@@ -7,4 +7,8 @@ export type UserProfile = {
   bio: string;
   avatarType: string;
   displayName: string;
+  followings: number;
+  followers: number;
+  blockings: number;
+  blockers: number;
 }
