@@ -3,7 +3,7 @@ const nodeExternals = require('webpack-node-externals');
 
 const isProd = process.env.NODE_ENV === 'production';
 
-const envPlugin = new webpack.EnvironmentPlugin(['NODE_ENV', 'RELAYER_API', 'INDEXER_API']);
+const envPlugin = new webpack.EnvironmentPlugin(['NODE_ENV', 'RELAYER_API', 'INDEXER_API', 'LOGGER_PATH']);
 
 const rules = [
   {

@@ -10,7 +10,7 @@ const devServerEntries = [
   'webpack/hot/only-dev-server',
 ];
 
-const envPlugin = new webpack.EnvironmentPlugin(['NODE_ENV']);
+const envPlugin = new webpack.EnvironmentPlugin(['NODE_ENV', 'LOGGER_PATH']);
 
 const rules = [
   {

@@ -737,14 +737,14 @@ export class IndexerManager {
     logger.info(`streaming ${tld}`, { tld });
 
     try {
-      const blobInfo = await this.client.getBlobInfo(tld);
+      // const blobInfo = await this.client.getBlobInfo(tld);
       // @ts-ignore
-      const lastMerkle = blobInfo.merkleRoot.toString('hex');
-      const row = await this.getBlobInfo(tld);
-      if (row && row.merkleRoot === lastMerkle) {
-        logger.info(`${tld} already streamed`, row);
-        return;
-      }
+      // const lastMerkle = blobInfo.merkleRoot.toString('hex');
+      // const row = await this.getBlobInfo(tld);
+      // if (row && row.merkleRoot === lastMerkle) {
+      //   logger.info(`${tld} already streamed`, row);
+      //   return;
+      // }
 
       const br = new BlobReader(tld, this.client);
       const r = new BufferedReader(br, 1024 * 1024);
@@ -758,7 +758,8 @@ export class IndexerManager {
         this.scanBlobData(newBR, tld);
       }
 
-      await this.insertOrUpdateBlobInfo(tld, lastMerkle);
+
+      // await this.insertOrUpdateBlobInfo(tld, lastMerkle);
     } catch (e) {
       logger.error(e);
       // return Promise.reject(e);
@@ -946,7 +947,7 @@ export class IndexerManager {
       await this.streamNBlobs(selectedTLDs);
     }
 
-    await this.streamBlobInfo('', undefined, true);
+    // await this.streamBlobInfo('', undefined, true);
   }
 
   private async streamNBlobs(tlds: string[]): Promise<void[]> {
