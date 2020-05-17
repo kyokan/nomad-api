@@ -2,14 +2,22 @@ import {Envelope as WireEnvelope} from "ddrp-js/dist/social/Envelope";
 import {Post as WirePost} from "ddrp-js/dist/social/Post";
 import {Connection as WireConnection} from "ddrp-js/dist/social/Connection";
 import {Moderation as WireModeration} from "ddrp-js/dist/social/Moderation";
+import {Media as WireMedia} from "ddrp-js/dist/social/Media";
 import {createRefhash} from "ddrp-js/dist/social/refhash";
 
 import {Envelope as DomainEnvelope} from 'ddrp-indexer/dist/domain/Envelope';
 import {Post as DomainPost} from 'ddrp-indexer/dist/domain/Post';
-import {Connection as DomainConnection} from 'ddrp-indexer/dist/domain/Connection';
-import {Moderation as DomainModeration} from 'ddrp-indexer/dist/domain/Moderation';
+import {
+  Connection as DomainConnection,
+  ConnectionType as DomainConnectionType,
+} from 'ddrp-indexer/dist/domain/Connection';
+import {
+  Moderation as DomainModeration,
+  ModerationType as DomainModerationType,
+} from 'ddrp-indexer/dist/domain/Moderation';
+import {Media as DomainMedia} from 'ddrp-indexer/dist/domain/Media';
 
-export const mapWireToEnvelope = async (tld: string, subdomain: string, wire: WireEnvelope): Promise<DomainEnvelope<DomainPost|DomainConnection|DomainModeration>> => {
+export const mapWireToEnvelope = async (tld: string, subdomain: string, wire: WireEnvelope): Promise<DomainEnvelope<DomainPost|DomainConnection|DomainModeration|DomainMedia>> => {
   const {
     timestamp,
     id,
@@ -56,10 +64,31 @@ export const mapWireToEnvelope = async (tld: string, subdomain: string, wire: Wi
         mapWireModerationToDomainModeration(message as WireModeration),
         additionalData,
       );
+    case WireMedia.TYPE.toString('utf-8'):
+      return new DomainEnvelope(
+        0,
+        tld,
+        subdomain,
+        id,
+        refhash,
+        timestamp,
+        mapWirePostToDomainMedia(message as WireMedia),
+        additionalData,
+      );
     default:
       return Promise.reject(new Error(`cannot find message type ${msgType}`));
   }
 };
+
+function mapWirePostToDomainMedia(wireMedia: WireMedia): DomainMedia {
+  return new DomainMedia(
+    0,
+    wireMedia.filename,
+    wireMedia.mimeType,
+    wireMedia.content,
+  );
+}
+
 
 function mapWirePostToDomainPost(wirePost: WirePost): DomainPost {
   return new DomainPost(
@@ -81,9 +110,7 @@ function mapWireConnectionToDomainConnection(wireConnection: WireConnection): Do
     0,
     wireConnection.tld,
     wireConnection.subdomain,
-    wireConnection.subtype.equals(WireConnection.FOLLOW_SUBTYPE)
-      ? 'FOLLOW'
-      : 'BLOCK'
+    wireConnection.connectionType() as DomainConnectionType,
   );
 }
 
@@ -91,8 +118,6 @@ function mapWireModerationToDomainModeration(wireModeration: WireModeration): Do
   return new DomainModeration(
     0,
     wireModeration.reference.toString('hex'),
-    wireModeration.subtype.equals(WireModeration.LIKE_SUBTYPE)
-      ? 'LIKE'
-      : 'PIN',
+    wireModeration.moderationType() as DomainModerationType,
   );
 }

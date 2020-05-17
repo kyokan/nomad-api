@@ -12,12 +12,15 @@ import {
   Block as DomainBlock,
 } from 'ddrp-indexer/dist/domain/Connection';
 import {Moderation as DomainModeration} from 'ddrp-indexer/dist/domain/Moderation';
+import {Media as DomainMedia} from 'ddrp-indexer/dist/domain/Media';
 import {Post} from "ddrp-js/dist/social/Post";
 import {Connection} from "ddrp-js/dist/social/Connection";
 import {Moderation} from "ddrp-js/dist/social/Moderation";
+import {Media} from "ddrp-js/dist/social/Media";
 import {PostsDAOImpl} from 'ddrp-indexer/dist/dao/PostsDAO';
 import {ConnectionsDAOImpl} from 'ddrp-indexer/dist/dao/ConnectionsDAO';
 import {ModerationsDAOImpl} from 'ddrp-indexer/dist/dao/ModerationsDAO';
+import {MediaDAOImpl} from 'ddrp-indexer/dist/dao/MediaDAO';
 import {SqliteEngine, Row} from 'ddrp-indexer/dist/dao/Engine';
 import {Pageable} from 'ddrp-indexer/dist/dao/Pageable';
 import * as path from 'path';
@@ -58,6 +61,7 @@ const TLD_CACHE: {
 const IMAGE_CACHE: {
   [hash: string]: {
     type: string;
+    filename: string;
     data: Buffer;
   };
 } = {};
@@ -70,6 +74,7 @@ export class IndexerManager {
   postsDao?: PostsDAOImpl;
   connectionsDao?: ConnectionsDAOImpl;
   moderationsDao?: ModerationsDAOImpl;
+  mediaDao?: MediaDAOImpl;
   client: DDRPDClient;
   engine: SqliteEngine;
   nameDB: SqliteEngine;
@@ -223,27 +228,31 @@ export class IndexerManager {
       }
     },
 
-    // '/media/:postHash': async (req: Request, res: Response) => {
-    //   try {
-    //     const { postHash } = req.params;
-    //
-    //     if (IMAGE_CACHE[postHash]) {
-    //       res.set({'Content-Type': IMAGE_CACHE[postHash].type});
-    //       res.send(IMAGE_CACHE[postHash].data);
-    //       return;
-    //     }
-    //
-    //     const {post} = await this.getPostByHash(postHash) || {};
-    //     const image = this.decodeBase64Image(post?.content);
-    //
-    //     IMAGE_CACHE[postHash] = image;
-    //     res.set({'Content-Type': image.type});
-    //     res.send(image.data);
-    //   } catch (e) {
-    //     res.status(500);
-    //     res.send(e.message);
-    //   }
-    // }
+    '/media/:refhash': async (req: Request, res: Response) => {
+      try {
+        const { refhash } = req.params;
+
+        if (IMAGE_CACHE[refhash]) {
+          res.set('Content-Disposition', `attachment; filename=${IMAGE_CACHE[refhash].filename}`);
+          res.set({'Content-Type': IMAGE_CACHE[refhash].type});
+          res.send(IMAGE_CACHE[refhash].data);
+          return;
+        }
+
+        const media = await this.getMediaByHash(refhash);
+
+        if (!media) {
+          return res.status(404).send();
+        }
+        
+        res.set('Content-Disposition', `attachment; filename=${media.filename}`);
+        res.set({'Content-Type': media.mime_type});
+        res.send(media.content);
+      } catch (e) {
+        res.status(500);
+        res.send(e.message);
+      }
+    }
   };
 
   setRoutes = (app: Express) => {
@@ -261,7 +270,7 @@ export class IndexerManager {
     app.get('/users/:username/blockees', this.handlers['/users/:username/blockees']);
     app.get('/users/:username/profile', this.handlers['/users/:username/profile']);
     app.get('/avatars/:sprite/:seed.svg', this.handlers['/avatars/:sprite/:seed.svg']);
-    // app.get('/media/:postHash', this.handlers['/media/:postHash']);
+    app.get('/media/:refhash', this.handlers['/media/:refhash']);
   };
 
   getUserBlocks = async (username: string, order: 'ASC' | 'DESC' = 'ASC', start = 0): Promise<Pageable<DomainBlock, number>> => {
@@ -436,6 +445,20 @@ export class IndexerManager {
       envelopes,
       envelopes[envelopes.length - 1].message.id,
     );
+  };
+
+  private getMediaByHash = async (refhash: string): Promise<any|undefined> => {
+    const row = this.engine.first(`
+      SELECT e.created_at, m.filename, m.mime_type, m.content
+      FROM media m JOIN envelopes e ON m.envelope_id = e.id
+      WHERE e.refhash = @refhash
+      ORDER BY e.created_at DESC
+    `, {
+      refhash,
+    });
+
+
+    return row;
   };
 
   private getUserDisplayName = async (username: string): Promise<string> => {
@@ -697,6 +720,8 @@ export class IndexerManager {
           return await this.connectionsDao?.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>);
         case Moderation.TYPE.toString('utf-8'):
           return await this.moderationsDao?.insertModeration(domainEnvelope as DomainEnvelope<DomainModeration>);
+        case Media.TYPE.toString('utf-8'):
+          return await this.mediaDao?.insertMedia(domainEnvelope as DomainEnvelope<DomainMedia>);
         default:
           return;
       }
@@ -892,6 +917,7 @@ export class IndexerManager {
     this.postsDao = new PostsDAOImpl(this.engine);
     this.connectionsDao = new ConnectionsDAOImpl(this.engine);
     this.moderationsDao = new ModerationsDAOImpl(this.engine);
+    this.mediaDao = new MediaDAOImpl(this.engine);
   }
 
   decodeBase64Image(dataString = ''): {
