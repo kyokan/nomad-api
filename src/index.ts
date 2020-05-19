@@ -4,11 +4,20 @@ import {DDRPManager} from "./services/ddrp";
 import {IndexerManager} from "./services/indexer";
 import {makeResponse} from "./util/rest";
 import Timeout = NodeJS.Timeout;
+import {Envelope as DomainEnvelope} from 'ddrp-indexer/dist/domain/Envelope';
+import {Post as DomainPost} from 'ddrp-indexer/dist/domain/Post';
+import {SqliteEngine, Row} from 'ddrp-indexer/dist/dao/Engine';
+import {Connection as DomainConnection} from 'ddrp-indexer/dist/domain/Connection';
+import {Moderation as DomainModeration} from 'ddrp-indexer/dist/domain/Moderation';
 import {dotName} from "./util/user";
 import logger from "./util/logger";
+import * as path from "path";
 const SERVICE_KEY = process.env.SERVICE_KEY;
 
 const jsonParser = bodyParser.json();
+
+const appDataPath = './build';
+const dbPath = path.join(appDataPath, 'pending.db');
 
 let watchInterval: Timeout;
 
@@ -16,6 +25,7 @@ let watchInterval: Timeout;
   const server = new RestServer();
   const ddrp = new DDRPManager();
   const indexer = new IndexerManager();
+  const engine = new SqliteEngine(dbPath);
 
   await ddrp.start();
   await indexer.start();
@@ -66,122 +76,120 @@ let watchInterval: Timeout;
     res.send(makeResponse('ok'));
   });
 
-  // app.post('/services/insertPost', jsonParser, async function upsertPostHandler(req, res) {
-  //   if (req.headers['service-key'] !== SERVICE_KEY) {
-  //     res.status(401).send(makeResponse('unauthorized', true));
-  //   }
-  //
-  //   const {
-  //     content = '',
-  //     guid = '',
-  //     parent = '',
-  //     context = '',
-  //     subdomain = '',
-  //     topic = '',
-  //     tags = [],
-  //     timestamp = 0,
-  //     tld = '',
-  //   } = req.body;
-  //
-  //   const post = new WirePost(
-  //     parent ? Buffer.from(parent, 'hex') : null,
-  //     context ? Buffer.from(context, 'hex') : null,
-  //     content,
-  //     topic,
-  //     tags,
-  //   );
-  //   const env = new Envelope(
-  //     ENVELOPE_VERSION,
-  //     WirePost.TYPE,
-  //     new Date(timestamp),
-  //     Buffer.from(guid.replace(/-/gi, ''), 'hex'),
-  //     post,
-  //   );
-  //
-  //   const resp = await indexer.insertPost(dotName(tld), subdomain, env);
-  //   res.send(makeResponse(resp));
-  // });
-  //
-  // app.post('/services/upsertReaction', jsonParser, async function upsertReactionHandler(req, res) {
-  //   if (!SERVICE_KEY || req.headers['service-key'] !== SERVICE_KEY) {
-  //     res.status(401).send(makeResponse('unauthorized', true));
-  //   }
-  //
-  //   const {
-  //     guid = '',
-  //     parent = '',
-  //     subdomain = '',
-  //     timestamp = 0,
-  //     tld = '',
-  //   } = req.body;
-  //   const post = new WireReaction(
-  //     parent ? Buffer.from(parent, 'hex') : Buffer.alloc(32),
-  //     0,
-  //   );
-  //   const env = new Envelope(
-  //     ENVELOPE_VERSION,
-  //     WireReaction.TYPE,
-  //     new Date(timestamp),
-  //     Buffer.from(guid.replace(/-/gi, ''), 'hex'),
-  //     post,
-  //   );
-  //   const resp = await indexer.insertPost(dotName(tld), subdomain, env);
-  //   res.send(makeResponse(resp));
-  // });
-  //
-  // app.post('/services/upsertFollow', jsonParser, async function upsertFollowHandler(req, res) {
-  //   if (req.headers['service-key'] !== SERVICE_KEY) {
-  //     res.status(401).send(makeResponse('unauthorized', true));
-  //   }
-  //
-  //   const {
-  //     guid = '',
-  //     // eslint-disable-next-line @typescript-eslint/camelcase
-  //     followee_subdomain = '',
-  //     timestamp = 0,
-  //     // eslint-disable-next-line @typescript-eslint/camelcase
-  //     followee_tld = '',
-  //     tld = '',
-  //     subdomain = '',
-  //   } = req.body;
-  //   const follow = new WireFollow(followee_tld, followee_subdomain);
-  //   const env = new Envelope(
-  //     ENVELOPE_VERSION,
-  //     WireFollow.TYPE,
-  //     new Date(timestamp),
-  //     Buffer.from(guid.replace(/-/gi, ''), 'hex'),
-  //     follow,
-  //   );
-  //   const resp = await indexer.insertPost(dotName(tld), subdomain, env);
-  //   res.send(makeResponse(resp));
-  // });
-  //
-  // app.post('/services/upsertBlock', jsonParser, async function upsertBlockHandler(req, res) {
-  //   if (req.headers['service-key'] !== SERVICE_KEY) {
-  //     res.status(401).send(makeResponse('unauthorized', true));
-  //   }
-  //
-  //   const {
-  //     guid = '',
-  //     // eslint-disable-next-line @typescript-eslint/camelcase
-  //     blockee_subdomain = '',
-  //     timestamp = 0,
-  //     // eslint-disable-next-line @typescript-eslint/camelcase
-  //     blockee_tld = '',
-  //     tld = '',
-  //     subdomain = '',
-  //   } = req.body;
-  //   const block = new WireBlock(blockee_tld, blockee_subdomain);
-  //   const env = new Envelope(
-  //     ENVELOPE_VERSION,
-  //     WireBlock.TYPE,
-  //     new Date(timestamp),
-  //     Buffer.from(guid.replace(/-/gi, ''), 'hex'),
-  //     block,
-  //   );
-  //   const resp = await indexer.insertPost(dotName(tld), subdomain, env);
-  //   res.send(makeResponse(resp));
-  // });
+  app.post('/services/upsertPost', jsonParser, async function upsertPostHandler(req, res) {
+    if (SERVICE_KEY && req.headers['service-key'] !== SERVICE_KEY) {
+      res.status(401).send(makeResponse('unauthorized', true));
+      return;
+    }
+
+    const {
+      body = '',
+      id = 0,
+      network_id = '',
+      refhash = '',
+      tags = [],
+      timestamp = 0,
+      tld = '',
+      username = '',
+      reference = '',
+      topic = '',
+    } = req.body;
+
+    const env = new DomainEnvelope(
+      id,
+      tld,
+      username,
+      network_id,
+      refhash,
+      new Date(timestamp),
+      new DomainPost(
+        0,
+        body,
+        '',
+        reference,
+        topic,
+        tags,
+        0,
+        0,
+        0,
+      ),
+      null,
+    );
+
+    const resp = await indexer.insertPendingPost(dotName(tld), env);
+    res.send(makeResponse(resp));
+  });
+
+  app.post('/services/upsertModeration', jsonParser, async function upsertReactionHandler(req, res) {
+    if (SERVICE_KEY && req.headers['service-key'] !== SERVICE_KEY) {
+      res.status(401).send(makeResponse('unauthorized', true));
+      return;
+    }
+
+    const {
+      network_id = '',
+      refhash = '',
+      username = '',
+      timestamp = 0,
+      tld = '',
+      reference = '',
+      type = '',
+    } = req.body;
+
+    const env = new DomainEnvelope(
+      0,
+      tld,
+      username,
+      network_id,
+      refhash,
+      new Date(timestamp),
+      new DomainModeration(
+        0,
+        reference,
+        type,
+      ),
+      null,
+    );
+
+    const resp = await indexer.insertPendingModeration(dotName(tld), env);
+    res.send(makeResponse(resp));
+  });
+
+  app.post('/services/upsertConnection', jsonParser, async function upsertBlockHandler(req, res) {
+    if (SERVICE_KEY && req.headers['service-key'] !== SERVICE_KEY) {
+      res.status(401).send(makeResponse('unauthorized', true));
+      return;
+    }
+
+    const {
+      network_id = '',
+      refhash = '',
+      username = '',
+      timestamp = 0,
+      tld = '',
+      connectee_tld = '',
+      connectee_subdomain = '',
+      type = '',
+    } = req.body;
+
+    const env = new DomainEnvelope(
+      0,
+      tld,
+      username,
+      network_id,
+      refhash,
+      new Date(timestamp),
+      new DomainConnection(
+        0,
+        connectee_tld,
+        connectee_subdomain,
+        type,
+      ),
+      null,
+    );
+    const resp = await indexer.insertPendingConnection(dotName(tld), env);
+    res.send(makeResponse(resp));
+  });
 
   await server.start();
 

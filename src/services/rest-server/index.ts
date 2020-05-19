@@ -4,7 +4,7 @@ import {makeResponse} from "../../util/rest";
 import logger from "../../util/logger";
 import fs from "fs";
 const requestIp = require('request-ip');
-const port = 8082 || process.env.PORT;
+const port = process.env.PORT || 8082;
 
 let docsHTML: string;
 

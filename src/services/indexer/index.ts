@@ -43,6 +43,7 @@ import {trackAttempt} from "../../util/matomo";
 const appDataPath = './build';
 const dbPath = path.join(appDataPath, 'nomad.db');
 const namedbPath = path.join(appDataPath, 'names.db');
+const pendingDbPath = path.join(appDataPath, 'pending.db');
 import {mapWireToEnvelope} from "../../util/envelope";
 import crypto from 'crypto';
 
@@ -78,17 +79,21 @@ export class IndexerManager {
   client: DDRPDClient;
   engine: SqliteEngine;
   nameDB: SqliteEngine;
+  pendingDB: SqliteEngine;
   dbPath: string;
   namedbPath: string;
+  pendingDbPath: string;
   resourcePath: string;
 
-  constructor(opts?: { dbPath?: string; namedbPath?: string; resourcePath?: string }) {
+  constructor(opts?: { dbPath?: string; namedbPath?: string; resourcePath?: string; pendingDbPath?: string }) {
     const client = new DDRPDClient('127.0.0.1:9098');
     this.client = client;
     this.engine = new SqliteEngine(opts?.dbPath || dbPath);
     this.nameDB = new SqliteEngine(opts?.namedbPath || namedbPath);
+    this.pendingDB = new SqliteEngine(opts?.pendingDbPath || pendingDbPath);
     this.dbPath = opts?.dbPath || dbPath;
     this.namedbPath = opts?.namedbPath || namedbPath;
+    this.pendingDbPath = opts?.pendingDbPath || pendingDbPath;
     this.resourcePath = opts?.resourcePath || 'resources';
   }
 
@@ -149,9 +154,11 @@ export class IndexerManager {
       trackAttempt('Get Timeline by User', req, req.params.username);
       const { order, limit, offset } = req.query || {};
       const {tld, subdomain} = parseUsername(req.params.username);
+
       const posts = await this.getPostsByFilter(extendFilter({
         postedBy: [serializeUsername(subdomain, tld)],
       }), order, limit, offset);
+
       res.send(makeResponse(posts));
     },
 
@@ -244,7 +251,7 @@ export class IndexerManager {
         if (!media) {
           return res.status(404).send();
         }
-        
+
         res.set('Content-Disposition', `attachment; filename=${media.filename}`);
         res.set({'Content-Type': media.mime_type});
         res.send(media.content);
@@ -638,6 +645,38 @@ export class IndexerManager {
       ? defaultOffset || 0
       : defaultOffset || 999999999999999999999;
 
+    if (!defaultOffset) {
+      this.pendingDB.each(`
+      SELECT * FROM posts p
+      WHERE (p.reference = "" AND (p.topic NOT LIKE ".%" OR p.topic = ""))
+    `, {
+        start: offset,
+        limit,
+      }, row => {
+        const env = new DomainEnvelope(
+          0,
+          row.tld,
+          row.username,
+          row.network_id,
+          row.refhash,
+          new Date(row.timestamp),
+          new DomainPost(
+            0,
+            row.body,
+            '',
+            row.reference,
+            row.topic,
+            [],
+            0,
+            0,
+            0,
+          ),
+          null,
+        );
+        envelopes.push(env);
+      });
+    }
+
     this.engine.each(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
@@ -702,12 +741,63 @@ export class IndexerManager {
     );
   }
 
+  insertPendingPost = async (tld: string, envelope: DomainEnvelope<DomainPost>): Promise<any> => {
+    return this.pendingDB.exec(`
+        INSERT INTO posts (network_id, refhash, username, tld, timestamp, reference, body, topic)
+        VALUES (@networkId, @refhash, @username, @tld, @timestamp, @reference, @body, @topic)
+      `,{
+      networkId: envelope.networkId,
+      refhash: envelope.refhash,
+      username: envelope.subdomain || '',
+      tld: envelope.tld,
+      timestamp: new Date(envelope.createdAt).getTime(),
+      reference: envelope.message.reference,
+      body: envelope.message.body,
+      topic: envelope.message.topic,
+    });
+  };
+
+  insertPendingModeration = async (tld: string, envelope: DomainEnvelope<DomainModeration>): Promise<any> => {
+    return this.pendingDB.exec(`
+        INSERT INTO moderations (network_id, refhash, username, tld, timestamp, reference, type)
+        VALUES (@networkId, @refhash, @username, @tld, @timestamp, @reference, @type)
+      `,{
+      networkId: envelope.networkId,
+      refhash: envelope.refhash,
+      username: envelope.subdomain || '',
+      tld: envelope.tld,
+      timestamp: new Date(envelope.createdAt).getTime(),
+      reference: envelope.message.reference,
+      type: envelope.message.type,
+    });
+  };
+
+  insertPendingConnection = async (tld: string, envelope: DomainEnvelope<DomainConnection>): Promise<any> => {
+    return this.pendingDB.exec(`
+        INSERT INTO connections (network_id, refhash, username, tld, timestamp, connectee_tld, connectee_subdomain, type)
+        VALUES (@networkId, @refhash, @username, @tld, @timestamp, @connectee_tld, @connectee_subdomain, @type)
+      `,{
+      networkId: envelope.networkId,
+      refhash: envelope.refhash,
+      username: envelope.subdomain || '',
+      tld: envelope.tld,
+      timestamp: new Date(envelope.createdAt).getTime(),
+      connectee_tld: envelope.message.tld,
+      connectee_subdomain: envelope.message.subdomain,
+      type: envelope.message.type,
+    });
+  };
 
   insertPost = async (tld: string, wire: WireEnvelope): Promise<any> => {
     const nameIndex = wire.nameIndex;
     const sub = await this.getSubdomainByIndex(nameIndex, tld);
     const subdomain = sub?.name || '';
-    logger.info(`inserting message ${serializeUsername(subdomain, tld)}/${wire.id}`);
+
+    logger.info(`inserting message`, {
+      networkd_id: wire.id,
+      tld: tld,
+      subdomain: subdomain,
+    });
 
     try {
       const message = wire.message;
@@ -777,10 +867,10 @@ export class IndexerManager {
 
       if (isSubdomain) {
         await this.scanSubdomainData(r, tld);
-        this.scanBlobData(r, tld);
+        await this.scanBlobData(r, tld);
       } else {
         const newBR = new BufferedReader(new BlobReader(tld, this.client), 1024 * 1024);
-        this.scanBlobData(newBR, tld);
+        await this.scanBlobData(newBR, tld);
       }
 
 
@@ -839,7 +929,7 @@ export class IndexerManager {
       logger.info(`scan subdomain data`, { tld });
       timeout = setTimeout(() => {
         resolve();
-      }, 5000);
+      }, 500);
 
       iterateAllSubdomains(r, (err, sub) => {
         if (timeout) clearTimeout(timeout);
@@ -878,7 +968,7 @@ export class IndexerManager {
 
       timeout = setTimeout(() => {
         resolve();
-      }, 5000);
+      }, 500);
 
       iterateAllEnvelopes(r, (err, env) => {
         if (timeout) clearTimeout(timeout);
@@ -895,7 +985,13 @@ export class IndexerManager {
         }
 
         this.insertPost(tld, env);
-        logger.info('scanned blob data', { tld, id: env.id });
+
+        logger.info('scanned envelope', { tld, network_id: env.id });
+
+        timeout = setTimeout(() => {
+          resolve();
+        }, 500);
+
         return true;
       });
     });
@@ -914,6 +1010,7 @@ export class IndexerManager {
 
     await this.engine.open();
     await this.nameDB.open();
+    await this.pendingDB.open();
     this.postsDao = new PostsDAOImpl(this.engine);
     this.connectionsDao = new ConnectionsDAOImpl(this.engine);
     this.moderationsDao = new ModerationsDAOImpl(this.engine);
@@ -954,8 +1051,10 @@ export class IndexerManager {
   private async copyDB () {
     const nomadSrc = path.join(this.resourcePath, 'nomad.db');
     const nameSrc = path.join(this.resourcePath, 'names.db');
+    const pendingSrc = path.join(this.resourcePath, 'pending.db');
     await fs.promises.copyFile(nomadSrc, this.dbPath);
     await fs.promises.copyFile(nameSrc, this.namedbPath);
+    await fs.promises.copyFile(pendingSrc, this.pendingDbPath);
   }
 
   async readAllTLDs(): Promise<string[]> {
@@ -967,7 +1066,7 @@ export class IndexerManager {
     await this.streamBlobInfo();
 
     const tlds = Object.keys(TLD_CACHE);
-    // const tlds = ['9325']
+    // const tlds = ['2062']
     for (let i = 0; i < tlds.length; i = i + 19) {
       const selectedTLDs = tlds.slice(i, i + 19).filter(tld => !!tld);
       await this.streamNBlobs(selectedTLDs);
