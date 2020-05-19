@@ -10,10 +10,13 @@ const appDataPath = './build';
 const ddrpdHome = path.join(appDataPath, '.ddrpd');
 const ddrpdPath = path.join(appDataPath, 'ddrpd');
 
-const MONIKER_LINE = 5;
-const HEARTBEAT_LINE = 6;
-const API_KEY_LINE = 9;
-const HOST_LINE = 10;
+const LOG_LEVEL_LINE = 14;
+const MONIKER_LINE = 20;
+const HEARTBEAT_LINE = 22;
+const API_KEY_LINE = 29;
+const BASE_PATH_LINE = 31;
+const HOST_LINE = 33;
+const PORT_LINE = 35;
 
 export class DDRPManager {
   private daemon: ChildProcess | null = null;
@@ -58,6 +61,8 @@ export class DDRPManager {
     await this.setHost(config.handshakeRPCHost);
     await this.setMoniker(config.moniker);
     await this.setHeartbeat(config.heartbeartUrl);
+    await this.setBasePath(config.handshakeBasePath);
+    await this.setPort(config.handshakePort);
   }
 
   startDaemon = async () => {
@@ -105,11 +110,27 @@ export class DDRPManager {
     this.daemon = null;
   };
 
+  getHeartbeat = async () => {
+    const content = await fs.promises.readFile(`${ddrpdHome}/config.toml`);
+    const splits = content.toString('utf-8').split('\n');
+    const heartbeatLine = splits[HEARTBEAT_LINE];
+    const heartbeat = heartbeatLine.slice(9, heartbeatLine.length - 1);
+    return heartbeat;
+  };
+
   setHeartbeat = async (url: string) => {
     const content = await fs.promises.readFile(`${ddrpdHome}/config.toml`);
     const splits = content.toString('utf-8').split('\n');
     splits[HEARTBEAT_LINE] = `  url = "${url}"`;
     return await fs.promises.writeFile(`${ddrpdHome}/config.toml`, splits.join('\n'));
+  };
+
+  getMoniker = async () => {
+    const content = await fs.promises.readFile(`${ddrpdHome}/config.toml`);
+    const splits = content.toString('utf-8').split('\n');
+    const monikerLine = splits[MONIKER_LINE];
+    const moniker = monikerLine.slice(13, monikerLine.length - 1);
+    return moniker;
   };
 
   setMoniker = async (moniker: string) => {
@@ -119,6 +140,14 @@ export class DDRPManager {
     return await fs.promises.writeFile(`${ddrpdHome}/config.toml`, splits.join('\n'));
   };
 
+  getHost = async () => {
+    const content = await fs.promises.readFile(`${ddrpdHome}/config.toml`);
+    const splits = content.toString('utf-8').split('\n');
+    const hostLine = splits[HOST_LINE];
+    const host = hostLine.slice(10, hostLine.length - 1);
+    return host;
+  };
+
   setHost = async (host: string) => {
     const content = await fs.promises.readFile(`${ddrpdHome}/config.toml`);
     const splits = content.toString('utf-8').split('\n');
@@ -126,10 +155,49 @@ export class DDRPManager {
     return await fs.promises.writeFile(`${ddrpdHome}/config.toml`, splits.join('\n'));
   };
 
+  getAPIKey = async () => {
+    const content = await fs.promises.readFile(`${ddrpdHome}/config.toml`);
+    const splits = content.toString('utf-8').split('\n');
+    const apiKeyLine = splits[API_KEY_LINE];
+    const apiKey = apiKeyLine.slice(13, apiKeyLine.length - 1);
+    return apiKey;
+  };
+
+  setDDRPInfo = async (rpcUrl: string, rpcKey: string, heartbeatUrl: string, moniker: string) => {
+    const content = await fs.promises.readFile(`${ddrpdHome}/config.toml`);
+    const splits = content.toString('utf-8').split('\n');
+    splits[API_KEY_LINE] = `  api_key = "${rpcKey}"`;
+    splits[HOST_LINE] = `  host = "${rpcUrl}"`;
+    splits[HEARTBEAT_LINE] = `  url = "${heartbeatUrl}"`;
+    splits[MONIKER_LINE] = `  moniker = "${moniker}"`;
+    return await fs.promises.writeFile(`${ddrpdHome}/config.toml`, splits.join('\n'));
+  };
+
   setAPIKey = async (apiKey: string) => {
     const content = await fs.promises.readFile(`${ddrpdHome}/config.toml`);
     const splits = content.toString('utf-8').split('\n');
     splits[API_KEY_LINE] = `  api_key = "${apiKey}"`;
+    return await fs.promises.writeFile(`${ddrpdHome}/config.toml`, splits.join('\n'));
+  };
+
+  setBasePath = async (basePath: string) => {
+    const content = await fs.promises.readFile(`${ddrpdHome}/config.toml`);
+    const splits = content.toString('utf-8').split('\n');
+    splits[BASE_PATH_LINE] = `  base_path = "${basePath}"`;
+    return await fs.promises.writeFile(`${ddrpdHome}/config.toml`, splits.join('\n'));
+  };
+
+  setPort = async (port: string) => {
+    const content = await fs.promises.readFile(`${ddrpdHome}/config.toml`);
+    const splits = content.toString('utf-8').split('\n');
+    splits[PORT_LINE] = `  port = ${port}`;
+    return await fs.promises.writeFile(`${ddrpdHome}/config.toml`, splits.join('\n'));
+  };
+
+  setLogLevel = async (level: 'info' | 'trace' | 'error') => {
+    const content = await fs.promises.readFile(`${ddrpdHome}/config.toml`);
+    const splits = content.toString('utf-8').split('\n');
+    splits[LOG_LEVEL_LINE] = `log_level = "${level}"`;
     return await fs.promises.writeFile(`${ddrpdHome}/config.toml`, splits.join('\n'));
   };
 

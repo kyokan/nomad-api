@@ -5,5 +5,7 @@
   "moniker": "Nomad API",
   "matomoAPI": "",
   "baseIP": "",
-  "tokenAuth": ""
+  "tokenAuth": "",
+  "handshakeBasePath": "",
+  "handshakePort": ""
 }

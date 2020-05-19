@@ -26,10 +26,19 @@ const logger = winston.createLogger({
   transports: transports,
 });
 
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(new winston.transports.Console({
-    format: winston.format.simple()
-  }));
-}
+logger.add(new winston.transports.Console({
+  format: winston.format.combine(
+    winston.format.align(),
+    winston.format.colorize({
+      all: true,
+      message: true,
+      colors: {
+        info: 'green',
+        error: 'red',
+        warning: 'orange',
+      }
+    })
+  )
+}));
 
 export default logger;

@@ -6,18 +6,13 @@ import {makeResponse} from "./util/rest";
 import Timeout = NodeJS.Timeout;
 import {Envelope as DomainEnvelope} from 'ddrp-indexer/dist/domain/Envelope';
 import {Post as DomainPost} from 'ddrp-indexer/dist/domain/Post';
-import {SqliteEngine, Row} from 'ddrp-indexer/dist/dao/Engine';
 import {Connection as DomainConnection} from 'ddrp-indexer/dist/domain/Connection';
 import {Moderation as DomainModeration} from 'ddrp-indexer/dist/domain/Moderation';
 import {dotName} from "./util/user";
-import logger from "./util/logger";
-import * as path from "path";
 const SERVICE_KEY = process.env.SERVICE_KEY;
 
 const jsonParser = bodyParser.json();
 
-const appDataPath = './build';
-const dbPath = path.join(appDataPath, 'pending.db');
 
 let watchInterval: Timeout;
 
@@ -25,7 +20,6 @@ let watchInterval: Timeout;
   const server = new RestServer();
   const ddrp = new DDRPManager();
   const indexer = new IndexerManager();
-  const engine = new SqliteEngine(dbPath);
 
   await ddrp.start();
   await indexer.start();

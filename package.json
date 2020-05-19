@@ -10,7 +10,7 @@
     "dev": "concurrently --kill-others-on-fail npm:watch-indexer-api npm:nodemon-indexer-api",
     "dev-doc": "webpack-dev-server --config webpack.ui.config.js --hot --inline --port 8083",
     "build-doc": "NODE_ENV=production webpack --config webpack.ui.config.js --inline",
-    "start": "NODE_ENV=prdocution npm run build-indexer-api && node ./build/index.js"
+    "start": "NODE_ENV=production npm run build-indexer-api && node ./build/index.js"
   },
   "author": "Kyokan Group, Inc.",
   "license": "ISC",
