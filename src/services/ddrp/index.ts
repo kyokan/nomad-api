@@ -87,7 +87,7 @@ export class DDRPManager {
         this.onNameSyncedCallback!(dotName(name));
       }
 
-      if (module === 'updater' && /successfully updated name/g.test(log)) {
+      if (module === 'updater' && /name updated/g.test(log)) {
         logger.info(`Streaming ${dotName(name)}`);
         this.onNameSyncedCallback!(dotName(name));
       }
