@@ -98,6 +98,17 @@ export class IndexerManager {
   }
 
   handlers = {
+    '/pending/posts': async (req: Request, res: Response) => {
+      trackAttempt('Get All Posts', req);
+      try {
+        const { order, offset, limit } = req.query || {};
+        const posts = await this.getPendingPosts(order, limit, offset);
+        res.send(makeResponse(posts));
+      } catch (e) {
+        res.status(500).send(makeResponse(e.message, true));
+      }
+    },
+
     '/posts': async (req: Request, res: Response) => {
       trackAttempt('Get All Posts', req);
       try {
@@ -263,6 +274,7 @@ export class IndexerManager {
   };
 
   setRoutes = (app: Express) => {
+    app.get('/pending/posts', this.handlers['/pending/posts']);
     app.get('/posts', this.handlers['/posts']);
     app.get('/posts/:hash', this.handlers['/posts/:hash']);
     app.get('/posts/:hash/comments', this.handlers['/posts/:hash/comments']);
@@ -639,43 +651,58 @@ export class IndexerManager {
     };
   };
 
+  getPendingPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    const envelopes: DomainEnvelope<DomainPost>[] = [];
+    const offset = defaultOffset || 0;
+
+    this.pendingDB.each(`
+      SELECT * FROM posts p
+      WHERE (p.reference = "" AND (p.topic NOT LIKE ".%" OR p.topic = ""))
+      ORDER BY timestamp ${order}
+      LIMIT @limit
+      OFFSET @start
+    `, {
+      start: offset,
+      limit,
+    }, row => {
+      const env = new DomainEnvelope(
+        0,
+        row.tld,
+        row.username,
+        row.network_id,
+        row.refhash,
+        new Date(row.timestamp),
+        new DomainPost(
+          0,
+          row.body,
+          '',
+          row.reference,
+          row.topic,
+          [],
+          0,
+          0,
+          0,
+        ),
+        null,
+      );
+      envelopes.push(env);
+    });
+
+    if (envelopes.length < limit) {
+      return new Pageable<DomainEnvelope<DomainPost>, number>(envelopes, -1);
+    }
+
+    return new Pageable<DomainEnvelope<DomainPost>, number>(
+      envelopes,
+      envelopes.length,
+    );
+  };
+
   getPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
     const envelopes: DomainEnvelope<DomainPost>[] = [];
     const offset = order === 'ASC'
       ? defaultOffset || 0
       : defaultOffset || 999999999999999999999;
-
-    if (!defaultOffset) {
-      this.pendingDB.each(`
-      SELECT * FROM posts p
-      WHERE (p.reference = "" AND (p.topic NOT LIKE ".%" OR p.topic = ""))
-    `, {
-        start: offset,
-        limit,
-      }, row => {
-        const env = new DomainEnvelope(
-          0,
-          row.tld,
-          row.username,
-          row.network_id,
-          row.refhash,
-          new Date(row.timestamp),
-          new DomainPost(
-            0,
-            row.body,
-            '',
-            row.reference,
-            row.topic,
-            [],
-            0,
-            0,
-            0,
-          ),
-          null,
-        );
-        envelopes.push(env);
-      });
-    }
 
     this.engine.each(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
@@ -741,6 +768,15 @@ export class IndexerManager {
     );
   }
 
+  deletePendingPost = async (networkId: string): Promise<any> => {
+    this.pendingDB.exec(`
+        DELETE FROM posts
+        WHERE posts.network_id = @networkId
+      `,{
+      networkId: networkId,
+    });
+  };
+
   insertPendingPost = async (tld: string, envelope: DomainEnvelope<DomainPost>): Promise<any> => {
     return this.pendingDB.exec(`
         INSERT INTO posts (network_id, refhash, username, tld, timestamp, reference, body, topic)
@@ -805,7 +841,9 @@ export class IndexerManager {
 
       switch (message.type.toString('utf-8')) {
         case Post.TYPE.toString('utf-8'):
-          return await this.postsDao?.insertPost(domainEnvelope as DomainEnvelope<DomainPost>);
+          await this.deletePendingPost(domainEnvelope.networkId);
+          await this.postsDao?.insertPost(domainEnvelope as DomainEnvelope<DomainPost>);
+          return;
         case Connection.TYPE.toString('utf-8'):
           return await this.connectionsDao?.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>);
         case Moderation.TYPE.toString('utf-8'):
@@ -1065,8 +1103,8 @@ export class IndexerManager {
   async streamAllBlobs(): Promise<void> {
     await this.streamBlobInfo();
 
-    const tlds = Object.keys(TLD_CACHE);
-    // const tlds = ['2062']
+    // const tlds = Object.keys(TLD_CACHE);
+    const tlds = ['2062']
     for (let i = 0; i < tlds.length; i = i + 19) {
       const selectedTLDs = tlds.slice(i, i + 19).filter(tld => !!tld);
       await this.streamNBlobs(selectedTLDs);
