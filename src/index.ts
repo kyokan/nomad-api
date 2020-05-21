@@ -89,6 +89,11 @@ let watchInterval: Timeout;
       topic = '',
     } = req.body;
 
+    if (!network_id || !refhash || !username || !tld) {
+      res.status(400).send(makeResponse('invalid post object', true));
+      return;
+    }
+
     const env = new DomainEnvelope(
       id,
       tld,
