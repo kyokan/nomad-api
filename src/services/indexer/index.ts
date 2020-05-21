@@ -1103,8 +1103,8 @@ export class IndexerManager {
   async streamAllBlobs(): Promise<void> {
     await this.streamBlobInfo();
 
-    // const tlds = Object.keys(TLD_CACHE);
-    const tlds = ['2062']
+    const tlds = Object.keys(TLD_CACHE);
+    // const tlds = ['2062']
     for (let i = 0; i < tlds.length; i = i + 19) {
       const selectedTLDs = tlds.slice(i, i + 19).filter(tld => !!tld);
       await this.streamNBlobs(selectedTLDs);
