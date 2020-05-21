@@ -1104,7 +1104,7 @@ export class IndexerManager {
     await this.streamBlobInfo();
 
     const tlds = Object.keys(TLD_CACHE);
-    // const tlds = ['2062']
+    // const tlds = ['9411']
     for (let i = 0; i < tlds.length; i = i + 19) {
       const selectedTLDs = tlds.slice(i, i + 19).filter(tld => !!tld);
       await this.streamNBlobs(selectedTLDs);
@@ -1147,23 +1147,23 @@ export class IndexerManager {
 
   private insertOrUpdateSubdomain = async (index: number, tld: string, publicKey: string, name: string): Promise<void> => {
     const row = await this.getSubdomainByIndex(index, tld);
-    if (row) {
-      if (row.name !== name || row.publicKey.toString('hex') != publicKey) {
-        return this.nameDB.exec(`
-          UPDATE names
-          SET
-            name = @name,
-            public_key = @publicKey
-          WHERE
-            "index" = @index @ tld = @tld
-        `, {
-            name,
-            index,
-            publicKey,
-            tld,
-          });
-        }
 
+    if (row) {
+      return this.nameDB.exec(`
+        UPDATE names
+        SET
+          name = @name,
+          "index" = @index,
+          public_key = @publicKey,
+          tld = @tld
+        WHERE
+          "name" = @name AND tld = @tld
+      `, {
+          name,
+          index,
+          publicKey,
+          tld,
+        });
     } else {
       return this.nameDB.exec(`
         INSERT INTO names (name, "index", public_key, tld)
