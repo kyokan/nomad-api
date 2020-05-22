@@ -824,10 +824,18 @@ export class IndexerManager {
     });
   };
 
-  insertPost = async (tld: string, wire: WireEnvelope): Promise<any> => {
+  insertPost = async (tld: string, wire: WireEnvelope, subdomains: string[] = []): Promise<any> => {
     const nameIndex = wire.nameIndex;
-    const sub = await this.getSubdomainByIndex(nameIndex, tld);
-    const subdomain = sub?.name || '';
+    const subdomain = subdomains[nameIndex] || '';
+
+    if (subdomains.length && !subdomain) {
+      logger.error(`cannot find subdomain`, {
+        networkd_id: wire.id,
+        tld: tld,
+        nameIndex: nameIndex,
+      });
+      return;
+    }
 
     logger.info(`inserting message`, {
       networkd_id: wire.id,
@@ -904,33 +912,14 @@ export class IndexerManager {
       const isSubdomain = await this.isSubdomainBlob(r);
 
       if (isSubdomain) {
-        await this.scanSubdomainData(r, tld);
-        await this.scanBlobData(r, tld);
+        const subdomains = await this.scanSubdomainData(r, tld);
+        await this.scanBlobData(r, tld, subdomains);
       } else {
         const newBR = new BufferedReader(new BlobReader(tld, this.client), 1024 * 1024);
-        await this.scanBlobData(newBR, tld);
+        await this.scanBlobData(newBR, tld, []);
       }
-
 
       // await this.insertOrUpdateBlobInfo(tld, lastMerkle);
-    } catch (e) {
-      logger.error(e);
-      // return Promise.reject(e);
-    }
-  };
-
-  streamBlob = async (tld: string): Promise<void> => {
-    logger.info(`streaming ${tld}`, { tld });
-
-    try {
-      const r = new BufferedReader(new BlobReader(tld, this.client), 1024 * 1024);
-      const isSubdomain = await this.isSubdomainBlob(r);
-
-      if (isSubdomain) {
-       await this.scanSubdomainData(r, tld);
-      }
-
-      this.scanBlobData(r, tld);
     } catch (e) {
       logger.error(e);
       // return Promise.reject(e);
@@ -961,8 +950,9 @@ export class IndexerManager {
     });
   };
 
-  private scanSubdomainData = (r: BufferedReader, tld: string): Promise<void> => {
+  private scanSubdomainData = (r: BufferedReader, tld: string): Promise<string[]> => {
     let timeout: any | undefined;
+    const subdomains: string[] = [];
     return new Promise((resolve, reject) => {
       logger.info(`scan subdomain data`, { tld });
       timeout = setTimeout(() => {
@@ -979,26 +969,28 @@ export class IndexerManager {
         }
 
         if (sub === null) {
-          resolve();
+          resolve(subdomains);
           return false;
         }
 
         logger.info(`scanned subdomain data`, { name: sub.name, index: sub.index });
 
-        this.insertOrUpdateSubdomain(
-          sub.index,
-          tld,
-          sub.publicKey.toString('hex'),
-          sub.name,
-        );
+        // this.insertOrUpdateSubdomain(
+        //   sub.index,
+        //   tld,
+        //   sub.publicKey.toString('hex'),
+        //   sub.name,
+        // );
 
-        timeout = setTimeout(() => resolve(), 500);
+        subdomains[sub.index] = sub.name;
+
+        timeout = setTimeout(() => resolve(subdomains), 500);
         return true;
       });
     });
   };
 
-  private scanBlobData = (r: BufferedReader, tld: string) => {
+  private scanBlobData = (r: BufferedReader, tld: string, subdomains: string[]) => {
     let timeout: any | undefined;
 
     return new Promise((resolve, reject) => {
@@ -1022,7 +1014,7 @@ export class IndexerManager {
           return false;
         }
 
-        this.insertPost(tld, env);
+        this.insertPost(tld, env, subdomains);
 
         logger.info('scanned envelope', { tld, network_id: env.id });
 
