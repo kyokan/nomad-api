@@ -78,7 +78,8 @@ let watchInterval: Timeout;
       return;
     }
     await indexer.streamAllBlobs();
-    res.send(makeResponse('ok'));
+    const ret = await indexer.scanMetadata();
+    res.send(ret);
   });
 
   app.post('/services/upsertPost', jsonParser, async function upsertPostHandler(req, res) {

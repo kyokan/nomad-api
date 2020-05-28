@@ -752,7 +752,7 @@ export class IndexerManager {
       row.subdomain,
       row.network_id,
       row.refhash,
-      new Date(row.created_at * 1000),
+      new Date(row.created_at),
       new DomainPost(
         row.post_id,
         row.body,
@@ -913,6 +913,18 @@ export class IndexerManager {
       .forEach(([refhash, count]) => {
         this.engine.exec(`
           UPDATE posts SET (reply_count) = @count
+          WHERE envelope_id = (
+            SELECT p.envelope_id
+            FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+            WHERE e.refhash = @refhash
+          )
+        `, { refhash, count });
+      });
+
+    Object.entries(likeCounts)
+      .forEach(([refhash, count]) => {
+        this.engine.exec(`
+          UPDATE posts SET (like_count) = @count
           WHERE envelope_id = (
             SELECT p.envelope_id
             FROM posts p JOIN envelopes e ON p.envelope_id = e.id
