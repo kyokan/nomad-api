@@ -700,17 +700,15 @@ export class IndexerManager {
 
   getPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
     const envelopes: DomainEnvelope<DomainPost>[] = [];
-    const offset = order === 'ASC'
-      ? defaultOffset || 0
-      : defaultOffset || 999999999999999999999;
+    const offset = defaultOffset || 0;
 
     this.engine.each(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
-        WHERE (p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL)) AND p.id ${order === 'DESC' ? '<' : '>'} @start
-        ORDER BY p.id ${order === 'ASC' ? 'ASC' : 'DESC'}
-        LIMIT @limit
+        WHERE (p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL))
+        ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
+        LIMIT @limit OFFSET @start
     `, {
       start: offset,
       limit,
@@ -724,7 +722,8 @@ export class IndexerManager {
 
     return new Pageable<DomainEnvelope<DomainPost>, number>(
       envelopes,
-      envelopes[envelopes.length - 1].message.id,
+      envelopes.length + Number(offset),
+
     );
   };
 
@@ -752,7 +751,7 @@ export class IndexerManager {
       row.subdomain,
       row.network_id,
       row.refhash,
-      new Date(row.created_at),
+      new Date(row.created_at * 1000),
       new DomainPost(
         row.post_id,
         row.body,
