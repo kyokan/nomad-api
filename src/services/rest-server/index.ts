@@ -33,7 +33,12 @@ export class RestServer {
       if (req.path.slice(0, 5) === '/docs') {
         res.send(docsHTML);
       }
-      next();
+
+      try {
+        next();
+      } catch (err) {
+        res.status(500).send(makeResponse(err.message, true));
+      }
     });
   }
 

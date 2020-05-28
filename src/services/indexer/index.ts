@@ -867,6 +867,66 @@ export class IndexerManager {
     }
   };
 
+  scanCommentCounts = async (): Promise<{[parent: string]: number}> => {
+    const sql = `
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+        p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+    `;
+
+    const commentCounts: {[parent: string]: number} = {};
+
+    this.engine.each(sql, {}, row => {
+      if (row.reference) {
+        commentCounts[row.reference] = commentCounts[row.reference] || 0;
+        commentCounts[row.reference]++;
+      }
+    });
+
+    return commentCounts;
+  };
+
+  scanLikeCounts = async (): Promise<{[parent: string]: number}> => {
+    const sql = `
+        SELECT * FROM moderations m
+        LEFT JOIN envelopes e ON m.envelope_id = e.id
+    `;
+
+    const likeCounts: {[parent: string]: number} = {};
+
+    this.engine.each(sql, {}, row => {
+      if (row.reference && row.moderation_type === 'LIKE') {
+        likeCounts[row.reference] = likeCounts[row.reference] || 0;
+        likeCounts[row.reference]++;
+      }
+    });
+
+    return likeCounts;
+  };
+
+  scanMetadata = async (): Promise<any> => {
+    const commentCounts = await this.scanCommentCounts();
+    const likeCounts = await this.scanLikeCounts();
+
+
+    Object.entries(commentCounts)
+      .forEach(([refhash, count]) => {
+        this.engine.exec(`
+          UPDATE posts SET (reply_count) = @count
+          WHERE envelope_id = (
+            SELECT p.envelope_id
+            FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+            WHERE e.refhash = @refhash
+          )
+        `, { refhash, count });
+      });
+
+    return {
+      commentCounts,
+      likeCounts,
+    };
+  };
+
   findNextOffset = async (tld: string): Promise<number> => {
     let offset = 0;
     let timeout: any;
@@ -1096,7 +1156,7 @@ export class IndexerManager {
     await this.streamBlobInfo();
 
     const tlds = Object.keys(TLD_CACHE);
-    // const tlds = ['9411']
+    // const tlds = ['tactical']
     for (let i = 0; i < tlds.length; i = i + 19) {
       const selectedTLDs = tlds.slice(i, i + 19).filter(tld => !!tld);
       await this.streamNBlobs(selectedTLDs);

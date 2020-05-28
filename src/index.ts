@@ -31,8 +31,19 @@ let watchInterval: Timeout;
 
   indexer.setRoutes(app);
 
+  app.post('/services/rescan', async function handleRescan(req, res) {
+    if (SERVICE_KEY && req.headers['service-key'] !== SERVICE_KEY) {
+      res.status(401).send(makeResponse('unauthorized', true));
+      return;
+    }
+
+    const ret = await indexer.scanMetadata();
+
+    res.send(makeResponse(ret));
+  }) ;
+
   app.post('/services/startWatch', async function startWatchHandler(req, res) {
-    if (req.headers['service-key'] !== SERVICE_KEY) {
+    if (SERVICE_KEY && req.headers['service-key'] !== SERVICE_KEY) {
       res.status(401).send(makeResponse('unauthorized', true));
       return;
     }
@@ -49,7 +60,7 @@ let watchInterval: Timeout;
   });
 
   app.post('/services/stopWatch', async function startWatchHandler(req, res) {
-    if (req.headers['service-key'] !== SERVICE_KEY) {
+    if (SERVICE_KEY && req.headers['service-key'] !== SERVICE_KEY) {
       res.status(401).send(makeResponse('unauthorized', true));
       return;
     }
