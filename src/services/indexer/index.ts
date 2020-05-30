@@ -196,21 +196,21 @@ export class IndexerManager {
     '/users/:username/followees': async (req: Request, res: Response) => {
       trackAttempt('Get Followees by User', req, req.params.username);
       const { order, limit, offset } = req.query || {};
-      const posts = await this.getUserFollowings(req.params.username, order,  offset);
+      const posts = await this.getUserFollowings(req.params.username, order, limit, offset);
       res.send(makeResponse(posts));
     },
 
     '/users/:username/followers': async (req: Request, res: Response) => {
       trackAttempt('Get Followers by User', req, req.params.username);
       const { order, limit, offset } = req.query || {};
-      const posts = await this.getUserFollowers(req.params.username, order,  offset);
+      const posts = await this.getUserFollowers(req.params.username, order, limit, offset);
       res.send(makeResponse(posts));
     },
 
     '/users/:username/blockees': async (req: Request, res: Response) => {
       trackAttempt('Get Blockees by User', req, req.params.username);
-      const { order, offset } = req.query || {};
-      const posts = await this.getUserBlocks(req.params.username, order, offset);
+      const { order, limit, offset } = req.query || {};
+      const posts = await this.getUserBlocks(req.params.username, order, limit, offset);
       res.send(makeResponse(posts));
     },
 
@@ -270,6 +270,30 @@ export class IndexerManager {
         res.status(500);
         res.send(e.message);
       }
+    },
+
+    '/trending/tags': async (req: Request, res: Response) => {
+      try {
+        trackAttempt('Get Trending Tags', req);
+        const { limit, offset } = req.query || {};
+        const tags = await this.queryTrendingTags(limit, offset);
+        res.send(makeResponse(tags));
+      } catch (e) {
+        res.status(500);
+        res.send(e.message);
+      }
+    },
+
+    '/trending/users': async (req: Request, res: Response) => {
+      try {
+        trackAttempt('Get Trending Posters', req);
+        const { limit, offset } = req.query || {};
+        const tags = await this.queryTrendingPosters(limit, offset);
+        res.send(makeResponse(tags));
+      } catch (e) {
+        res.status(500);
+        res.send(e.message);
+      }
     }
   };
 
@@ -290,21 +314,23 @@ export class IndexerManager {
     app.get('/users/:username/profile', this.handlers['/users/:username/profile']);
     app.get('/avatars/:sprite/:seed.svg', this.handlers['/avatars/:sprite/:seed.svg']);
     app.get('/media/:refhash', this.handlers['/media/:refhash']);
+    app.get('/trending/tags', this.handlers['/trending/tags']);
+    app.get('/trending/users', this.handlers['/trending/users']);
   };
 
-  getUserBlocks = async (username: string, order: 'ASC' | 'DESC' = 'ASC', start = 0): Promise<Pageable<DomainBlock, number>> => {
+  getUserBlocks = async (username: string, order: 'ASC' | 'DESC' = 'ASC', limit = 20, start = 0): Promise<Pageable<DomainBlock, number>> => {
     const { tld, subdomain } = parseUsername(username);
-    return this.connectionsDao!.getBlockees(tld, subdomain || '', start);
+    return this.connectionsDao!.getBlockees(tld, subdomain || '', limit, start);
   };
 
-  getUserFollowings = async (username: string, order: 'ASC' | 'DESC' = 'ASC', start = 0): Promise<Pageable<DomainFollow, number>> => {
+  getUserFollowings = async (username: string, order: 'ASC' | 'DESC' = 'ASC', limit = 20, start = 0): Promise<Pageable<DomainFollow, number>> => {
     const { tld, subdomain } = parseUsername(username);
-    return this.connectionsDao!.getFollowees(tld, subdomain || '', start);
+    return this.connectionsDao!.getFollowees(tld, subdomain || '', limit, start);
   };
 
-  getUserFollowers = async (username: string, order: 'ASC' | 'DESC' = 'ASC', start = 0): Promise<Pageable<DomainFollow, number>> => {
+  getUserFollowers = async (username: string, order: 'ASC' | 'DESC' = 'ASC', limit = 20, start = 0): Promise<Pageable<DomainFollow, number>> => {
     const { tld, subdomain } = parseUsername(username);
-    return this.connectionsDao!.getFollowers(tld, subdomain || '', start);
+    return this.connectionsDao!.getFollowers(tld, subdomain || '', limit, start);
   };
 
   getPostByHash = async (refhash: string): Promise<DomainEnvelope<DomainPost> | null>  => {
@@ -723,7 +749,6 @@ export class IndexerManager {
     return new Pageable<DomainEnvelope<DomainPost>, number>(
       envelopes,
       envelopes.length + Number(offset),
-
     );
   };
 
@@ -903,10 +928,60 @@ export class IndexerManager {
     return likeCounts;
   };
 
+  queryTrendingTags = async (limit = 20, offset = 0): Promise<Pageable<{name: string, count: number}, number>> => {
+    const rows: {name: string, count: number}[] = [];
+
+    this.engine.each(`
+      SELECT t.name, COUNT(post_id) as count FROM tags_posts tp
+      JOIN tags t WHERE t.id = tp.tag_id
+      GROUP BY tag_id
+      ORDER BY count DESC LIMIT @limit OFFSET @offset
+    `, { limit, offset }, (row: any) => {
+      rows.push(row);
+    });
+
+    if (!rows.length) {
+      return {
+        items: [],
+        next: -1,
+      };
+    }
+
+    return {
+      items: rows,
+      next: rows.length + Number(offset),
+    };
+  };
+
+  queryTrendingPosters = async (limit = 20, offset = 0): Promise<Pageable<{username: string, count: number}, number>> => {
+    const rows: {username: string, count: number}[] = [];
+
+    this.engine.each(`
+      SELECT COUNT(p.id) as count, e.tld, e.subdomain
+      FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+      WHERE (p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL))
+      GROUP BY e.tld, e.subdomain
+      ORDER BY count DESC LIMIT @limit OFFSET @offset
+    `, { limit, offset }, (row: any) => {
+      rows.push(row);
+    });
+
+    if (!rows.length) {
+      return {
+        items: [],
+        next: -1,
+      };
+    }
+
+    return {
+      items: rows,
+      next: rows.length + Number(offset),
+    };
+  };
+
   scanMetadata = async (): Promise<any> => {
     const commentCounts = await this.scanCommentCounts();
     const likeCounts = await this.scanLikeCounts();
-
 
     Object.entries(commentCounts)
       .forEach(([refhash, count]) => {
@@ -979,14 +1054,14 @@ export class IndexerManager {
       // }
 
       const br = new BlobReader(tld, this.client);
-      const r = new BufferedReader(br, 1024 * 1024);
+      const r = new BufferedReader(br, 4 * 1024 * 1024 - 5);
       const isSubdomain = await this.isSubdomainBlob(r);
 
       if (isSubdomain) {
         const subdomains = await this.scanSubdomainData(r, tld);
         await this.scanBlobData(r, tld, subdomains);
       } else {
-        const newBR = new BufferedReader(new BlobReader(tld, this.client), 1024 * 1024);
+        const newBR = new BufferedReader(new BlobReader(tld, this.client), 4 * 1024 * 1024 - 5);
         await this.scanBlobData(newBR, tld, []);
       }
 
@@ -1063,7 +1138,7 @@ export class IndexerManager {
 
   private scanBlobData = (r: BufferedReader, tld: string, subdomains: string[]) => {
     let timeout: any | undefined;
-
+    let i = 0;
     return new Promise((resolve, reject) => {
       logger.info(`scan blob data`, { tld });
 
@@ -1167,7 +1242,7 @@ export class IndexerManager {
     await this.streamBlobInfo();
 
     const tlds = Object.keys(TLD_CACHE);
-    // const tlds = ['tactical']
+    // const tlds = ['5404']
     for (let i = 0; i < tlds.length; i = i + 19) {
       const selectedTLDs = tlds.slice(i, i + 19).filter(tld => !!tld);
       await this.streamNBlobs(selectedTLDs);
