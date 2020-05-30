@@ -928,8 +928,32 @@ export class IndexerManager {
     return likeCounts;
   };
 
-  queryTrendingTags = async (limit = 20, offset = 0): Promise<Pageable<{name: string, count: number}, number>> => {
-    const rows: {name: string, count: number}[] = [];
+  private getPostersOfTag = (tagName: string): {tld: string; subdomain: string; count: number}[] => {
+    const sql = `
+      SELECT e.tld, e.subdomain
+      FROM posts p
+      JOIN envelopes e ON p.envelope_id = e.id
+      JOIN (tags_posts tp JOIN tags t ON t.id = tp.tag_id)
+      ON t.name = @tagName AND p.id = tp.post_id AND (p.topic NOT LIKE ".%" OR p.topic is NULL)
+      GROUP BY e.tld, e.subdomain
+    `;
+    const params = { tagName };
+    const rows: { tld: string; subdomain: string; count: number}[] = [];
+
+    try {
+      this.engine.each(sql, params, (row: any) => {
+        rows.push(row);
+      });
+
+      return rows;
+    } catch (e) {
+      return [];
+    }
+
+  };
+
+  queryTrendingTags = async (limit = 20, offset = 0): Promise<Pageable<{name: string; count: number; posterCount: number}, number>> => {
+    const rows: {name: string; count: number; posterCount: number}[] = [];
 
     this.engine.each(`
       SELECT t.name, COUNT(post_id) as count FROM tags_posts tp
@@ -937,7 +961,11 @@ export class IndexerManager {
       GROUP BY tag_id
       ORDER BY count DESC LIMIT @limit OFFSET @offset
     `, { limit, offset }, (row: any) => {
-      rows.push(row);
+      const posterCount = this.getPostersOfTag(row.name).length;
+      rows.push({
+        ...row,
+        posterCount,
+      });
     });
 
     if (!rows.length) {
