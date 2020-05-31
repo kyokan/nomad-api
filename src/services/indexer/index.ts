@@ -683,7 +683,7 @@ export class IndexerManager {
 
     this.pendingDB.each(`
       SELECT * FROM posts p
-      WHERE (p.reference = "" AND (p.topic NOT LIKE ".%" OR p.topic = ""))
+      WHERE ((p.reference = "" OR p.reference IS NULL) AND (p.topic NOT LIKE ".%" OR p.topic = "" OR p.topic IS NULL))
       ORDER BY timestamp ${order}
       LIMIT @limit
       OFFSET @start
