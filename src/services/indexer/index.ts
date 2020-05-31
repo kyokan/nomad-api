@@ -214,6 +214,13 @@ export class IndexerManager {
       res.send(makeResponse(posts));
     },
 
+    '/users/:username/uploads': async (req: Request, res: Response) => {
+      trackAttempt('Get uploads by User', req, req.params.username);
+      const { order, limit, offset } = req.query || {};
+      const posts = await this.getUserUploads(req.params.username, order, limit, offset);
+      res.send(makeResponse(posts));
+    },
+
     '/users/:username/profile': async (req: Request, res: Response) => {
       trackAttempt('Get User Profile', req, req.params.username);
       const hash = await this.getUserProfile(req.params.username);
@@ -311,6 +318,7 @@ export class IndexerManager {
     app.get('/users/:username/followees', this.handlers['/users/:username/followees']);
     app.get('/users/:username/followers', this.handlers['/users/:username/followers']);
     app.get('/users/:username/blockees', this.handlers['/users/:username/blockees']);
+    app.get('/users/:username/uploads', this.handlers['/users/:username/uploads']);
     app.get('/users/:username/profile', this.handlers['/users/:username/profile']);
     app.get('/avatars/:sprite/:seed.svg', this.handlers['/avatars/:sprite/:seed.svg']);
     app.get('/media/:refhash', this.handlers['/media/:refhash']);
@@ -752,6 +760,54 @@ export class IndexerManager {
     );
   };
 
+
+  async getUserUploads (username: string, order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<any, number>> {
+    const { tld, subdomain } = parseUsername(username);
+    const offset = defaultOffset || 0;
+
+    const envelopes: any = [];
+
+    if (subdomain) {
+      return {
+        items: envelopes,
+        next: -1,
+      };
+    }
+
+    this.engine.each(`
+      SELECT e.id as envelope_id, m.id as media, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
+        m.filename, m.mime_type
+      FROM media m JOIN envelopes e ON m.envelope_id = e.id
+      WHERE e.tld = @tld AND e.subdomain = @subdomain
+      ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
+      LIMIT @limit OFFSET @start
+    `, {
+      tld,
+      subdomain,
+      limit,
+      start: offset,
+    }, row => {
+      envelopes.push({
+        id: row.envelope_id,
+        tld: row.tld,
+        subdomain: row.subdomain,
+        networkId: row.network_id,
+        refhash: row.refhash,
+        createdAt: new Date(row.created_at * 1000),
+        message: {
+          filename: row.filename,
+          mimeType: row.mime_type,
+        }
+      });
+    });
+
+
+    return new Pageable<DomainEnvelope<DomainMedia>, number>(
+      envelopes,
+      envelopes.length + Number(offset),
+    );
+  }
+
   private mapPost (row: Row, includeTags: boolean): DomainEnvelope<DomainPost> {
     const tags: string[] = [];
 
@@ -927,123 +983,6 @@ export class IndexerManager {
 
     return likeCounts;
   };
-
-  async getUserMedia (username: string): Promise<DomainEnvelope<DomainMedia>[]> {
-    const { tld, subdomain } = parseUsername(username);
-
-    const envelopes: DomainEnvelope<DomainMedia>[] = [];
-
-    if (subdomain) return envelopes;
-
-    this.engine.each(`
-      SELECT e.id as envelope_id, m.id as media_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
-        m.filename, m.mime_type, m.content
-      FROM media m JOIN envelopes e ON m.envelope_id = e.id
-      WHERE e.tld = @tld AND e.subdomain = @subdomain
-    `, { tld, subdomain }, row => {
-      envelopes.push(new DomainEnvelope<DomainMedia>(
-        row.envelope_id,
-        row.tld,
-        row.subdomain,
-        row.network_id,
-        row.refhash,
-        new Date(row.created_at * 1000),
-        new DomainMedia(
-          row.media_id,
-          row.filename,
-          row.mime_type,
-          row.content,
-        ),
-        null
-      ));
-    });
-
-    return envelopes;
-  }
-
-  async getUserConnections (username: string): Promise<DomainEnvelope<DomainConnection>[]> {
-    const { tld, subdomain } = parseUsername(username);
-
-    const envelopes: DomainEnvelope<DomainConnection>[] = [];
-
-    if (subdomain) return envelopes;
-
-    this.engine.each(`
-      SELECT e.id as envelope_id, c.id as connection_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
-        c.tld as connection_tld, c.subdomain as connection_subdomain, c.connection_type
-      FROM connections c JOIN envelopes e ON c.envelope_id = e.id
-      WHERE e.tld = @tld AND e.subdomain = @subdomain
-    `, { tld, subdomain }, row => {
-      envelopes.push(new DomainEnvelope<DomainConnection>(
-        row.envelope_id,
-        row.tld,
-        row.subdomain,
-        row.network_id,
-        row.refhash,
-        new Date(row.created_at * 1000),
-        new DomainConnection(
-          row.connection_id,
-          row.connection_tld,
-          row.connection_subdomain,
-          row.connection_type,
-        ),
-        null
-      ));
-    });
-
-    return envelopes;
-  }
-
-  async getUserModerations (username: string): Promise<DomainEnvelope<DomainModeration>[]> {
-    const { tld, subdomain } = parseUsername(username);
-
-    const envelopes: DomainEnvelope<DomainModeration>[] = [];
-
-    if (subdomain) return envelopes;
-
-    this.engine.each(`
-      SELECT e.id as envelope_id, m.id as moderation_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
-        m.reference, m.moderation_type
-      FROM moderations m JOIN envelopes e ON m.envelope_id = e.id
-      WHERE e.tld = @tld AND e.subdomain = @subdomain
-    `, { tld, subdomain }, row => {
-      envelopes.push(new DomainEnvelope<DomainModeration>(
-        row.envelope_id,
-        row.tld,
-        row.subdomain,
-        row.network_id,
-        row.refhash,
-        new Date(row.created_at * 1000),
-        new DomainModeration(
-          row.moderation_id,
-          row.reference,
-          row.moderation_type,
-        ),
-        null
-      ));
-    });
-
-    return envelopes;
-  }
-
-  async getUserPosts (username: string): Promise<DomainEnvelope<DomainPost>[]> {
-    const { tld, subdomain } = parseUsername(username);
-
-    const envelopes: DomainEnvelope<DomainPost>[] = [];
-
-    if (subdomain) return envelopes;
-
-    this.engine.each(`
-      SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-              p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
-      FROM posts p JOIN envelopes e ON p.envelope_id = e.id
-      WHERE e.tld = @tld AND e.subdomain = @subdomain
-    `, { tld, subdomain }, row => {
-      envelopes.push(this.mapPost(row, true));
-    });
-
-    return envelopes;
-  }
 
   private getPostersOfTag = (tagName: string): {tld: string; subdomain: string; count: number}[] => {
     const sql = `
