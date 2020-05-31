@@ -928,6 +928,123 @@ export class IndexerManager {
     return likeCounts;
   };
 
+  async getUserMedia (username: string): Promise<DomainEnvelope<DomainMedia>[]> {
+    const { tld, subdomain } = parseUsername(username);
+
+    const envelopes: DomainEnvelope<DomainMedia>[] = [];
+
+    if (subdomain) return envelopes;
+
+    this.engine.each(`
+      SELECT e.id as envelope_id, m.id as media_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
+        m.filename, m.mime_type, m.content
+      FROM media m JOIN envelopes e ON m.envelope_id = e.id
+      WHERE e.tld = @tld AND e.subdomain = @subdomain
+    `, { tld, subdomain }, row => {
+      envelopes.push(new DomainEnvelope<DomainMedia>(
+        row.envelope_id,
+        row.tld,
+        row.subdomain,
+        row.network_id,
+        row.refhash,
+        new Date(row.created_at * 1000),
+        new DomainMedia(
+          row.media_id,
+          row.filename,
+          row.mime_type,
+          row.content,
+        ),
+        null
+      ));
+    });
+
+    return envelopes;
+  }
+
+  async getUserConnections (username: string): Promise<DomainEnvelope<DomainConnection>[]> {
+    const { tld, subdomain } = parseUsername(username);
+
+    const envelopes: DomainEnvelope<DomainConnection>[] = [];
+
+    if (subdomain) return envelopes;
+
+    this.engine.each(`
+      SELECT e.id as envelope_id, c.id as connection_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
+        c.tld as connection_tld, c.subdomain as connection_subdomain, c.connection_type
+      FROM connections c JOIN envelopes e ON c.envelope_id = e.id
+      WHERE e.tld = @tld AND e.subdomain = @subdomain
+    `, { tld, subdomain }, row => {
+      envelopes.push(new DomainEnvelope<DomainConnection>(
+        row.envelope_id,
+        row.tld,
+        row.subdomain,
+        row.network_id,
+        row.refhash,
+        new Date(row.created_at * 1000),
+        new DomainConnection(
+          row.connection_id,
+          row.connection_tld,
+          row.connection_subdomain,
+          row.connection_type,
+        ),
+        null
+      ));
+    });
+
+    return envelopes;
+  }
+
+  async getUserModerations (username: string): Promise<DomainEnvelope<DomainModeration>[]> {
+    const { tld, subdomain } = parseUsername(username);
+
+    const envelopes: DomainEnvelope<DomainModeration>[] = [];
+
+    if (subdomain) return envelopes;
+
+    this.engine.each(`
+      SELECT e.id as envelope_id, m.id as moderation_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
+        m.reference, m.moderation_type
+      FROM moderations m JOIN envelopes e ON m.envelope_id = e.id
+      WHERE e.tld = @tld AND e.subdomain = @subdomain
+    `, { tld, subdomain }, row => {
+      envelopes.push(new DomainEnvelope<DomainModeration>(
+        row.envelope_id,
+        row.tld,
+        row.subdomain,
+        row.network_id,
+        row.refhash,
+        new Date(row.created_at * 1000),
+        new DomainModeration(
+          row.moderation_id,
+          row.reference,
+          row.moderation_type,
+        ),
+        null
+      ));
+    });
+
+    return envelopes;
+  }
+
+  async getUserPosts (username: string): Promise<DomainEnvelope<DomainPost>[]> {
+    const { tld, subdomain } = parseUsername(username);
+
+    const envelopes: DomainEnvelope<DomainPost>[] = [];
+
+    if (subdomain) return envelopes;
+
+    this.engine.each(`
+      SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+              p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+      FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+      WHERE e.tld = @tld AND e.subdomain = @subdomain
+    `, { tld, subdomain }, row => {
+      envelopes.push(this.mapPost(row, true));
+    });
+
+    return envelopes;
+  }
+
   private getPostersOfTag = (tagName: string): {tld: string; subdomain: string; count: number}[] => {
     const sql = `
       SELECT e.tld, e.subdomain
@@ -981,8 +1098,8 @@ export class IndexerManager {
     };
   };
 
-  queryTrendingPosters = async (limit = 20, offset = 0): Promise<Pageable<{username: string, count: number}, number>> => {
-    const rows: {username: string, count: number}[] = [];
+  queryTrendingPosters = async (limit = 20, offset = 0): Promise<Pageable<{username: string; count: number}, number>> => {
+    const rows: {username: string; count: number}[] = [];
 
     this.engine.each(`
       SELECT COUNT(p.id) as count, e.tld, e.subdomain
@@ -1166,7 +1283,7 @@ export class IndexerManager {
 
   private scanBlobData = (r: BufferedReader, tld: string, subdomains: string[]) => {
     let timeout: any | undefined;
-    let i = 0;
+
     return new Promise((resolve, reject) => {
       logger.info(`scan blob data`, { tld });
 
