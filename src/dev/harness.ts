@@ -18,6 +18,27 @@ healthCheck();
   await getPostsCheck('/users/9325/comments');
   await getPostsCheck('/tags?tags=bug');
   await getUserProfileCheck('/users/9325/profile');
+
+  const resp = await fetch(`/writer/precommit`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      "tld": "9325",
+      "post": {
+        "body": "hello, world",
+        "title": null,
+        "reference": null,
+        "topic": null,
+        "tags": []
+      }
+    }),
+  })
+
+  const json = await resp.json();
+  console.log(json);
+
 })();
 
 
@@ -39,7 +60,7 @@ async function getUserProfileCheck(path: string) {
     console.error(resp);
   }
 
-  assert(typeof json.payload, 'string', `GET ${path}`);
+  assert(typeof json.payload, 'object', `GET ${path}`);
 }
 
 

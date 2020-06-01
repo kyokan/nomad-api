@@ -9,10 +9,10 @@ import {Post as DomainPost} from 'ddrp-indexer/dist/domain/Post';
 import {Connection as DomainConnection} from 'ddrp-indexer/dist/domain/Connection';
 import {Moderation as DomainModeration} from 'ddrp-indexer/dist/domain/Moderation';
 import {dotName} from "./util/user";
+import {Writer} from "./services/writer";
 const SERVICE_KEY = process.env.SERVICE_KEY;
 
 const jsonParser = bodyParser.json();
-
 
 let watchInterval: Timeout;
 
@@ -20,6 +20,9 @@ let watchInterval: Timeout;
   const server = new RestServer();
   const ddrp = new DDRPManager();
   const indexer = new IndexerManager();
+  const writer = new Writer({
+    indexer,
+  });
 
   await ddrp.start();
   await indexer.start();
@@ -30,6 +33,7 @@ let watchInterval: Timeout;
   const app = server.app;
 
   indexer.setRoutes(app);
+  writer.setRoutes(app);
 
   app.post('/services/rescan', async function handleRescan(req, res) {
     if (SERVICE_KEY && req.headers['service-key'] !== SERVICE_KEY) {

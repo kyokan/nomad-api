@@ -760,6 +760,143 @@ export class IndexerManager {
     );
   };
 
+  async getUserMedia (username: string): Promise<DomainEnvelope<DomainMedia>[]> {
+    const { tld, subdomain } = parseUsername(username);
+
+    const envelopes: DomainEnvelope<DomainMedia>[] = [];
+
+    if (subdomain) return envelopes;
+
+    this.engine.each(`
+      SELECT e.id as envelope_id, m.id as media_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
+        m.filename, m.mime_type, m.content
+      FROM media m JOIN envelopes e ON m.envelope_id = e.id
+      WHERE e.tld = @tld AND e.subdomain = @subdomain
+    `, { tld, subdomain }, row => {
+      envelopes.push(new DomainEnvelope<DomainMedia>(
+        row.envelope_id,
+        row.tld,
+        row.subdomain,
+        row.network_id,
+        row.refhash,
+        new Date(row.created_at * 1000),
+        new DomainMedia(
+          row.media_id,
+          row.filename,
+          row.mime_type,
+          row.content,
+        ),
+        null
+      ));
+    });
+
+    return envelopes;
+  }
+
+  async getUserConnections (username: string): Promise<DomainEnvelope<DomainConnection>[]> {
+    const { tld, subdomain } = parseUsername(username);
+
+    const envelopes: DomainEnvelope<DomainConnection>[] = [];
+
+    if (subdomain) return envelopes;
+
+    this.engine.each(`
+      SELECT e.id as envelope_id, c.id as connection_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
+        c.tld as connection_tld, c.subdomain as connection_subdomain, c.connection_type
+      FROM connections c JOIN envelopes e ON c.envelope_id = e.id
+      WHERE e.tld = @tld AND e.subdomain = @subdomain
+    `, { tld, subdomain }, row => {
+      envelopes.push(new DomainEnvelope<DomainConnection>(
+        row.envelope_id,
+        row.tld,
+        row.subdomain,
+        row.network_id,
+        row.refhash,
+        new Date(row.created_at * 1000),
+        new DomainConnection(
+          row.connection_id,
+          row.connection_tld,
+          row.connection_subdomain,
+          row.connection_type,
+        ),
+        null
+      ));
+    });
+
+    return envelopes;
+  }
+
+  async getUserModerations (username: string): Promise<DomainEnvelope<DomainModeration>[]> {
+    const { tld, subdomain } = parseUsername(username);
+
+    const envelopes: DomainEnvelope<DomainModeration>[] = [];
+
+    if (subdomain) return envelopes;
+
+    this.engine.each(`
+      SELECT e.id as envelope_id, m.id as moderation_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
+        m.reference, m.moderation_type
+      FROM moderations m JOIN envelopes e ON m.envelope_id = e.id
+      WHERE e.tld = @tld AND e.subdomain = @subdomain
+    `, { tld, subdomain }, row => {
+      envelopes.push(new DomainEnvelope<DomainModeration>(
+        row.envelope_id,
+        row.tld,
+        row.subdomain,
+        row.network_id,
+        row.refhash,
+        new Date(row.created_at * 1000),
+        new DomainModeration(
+          row.moderation_id,
+          row.reference,
+          row.moderation_type,
+        ),
+        null
+      ));
+    });
+
+    return envelopes;
+  }
+
+  async getUserPosts (username: string): Promise<DomainEnvelope<DomainPost>[]> {
+    const { tld, subdomain } = parseUsername(username);
+
+    const envelopes: DomainEnvelope<DomainPost>[] = [];
+
+    if (subdomain) return envelopes;
+
+    this.engine.each(`
+      SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+              p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+      FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+      WHERE e.tld = @tld AND e.subdomain = @subdomain
+    `, { tld, subdomain }, row => {
+      envelopes.push(this.mapPost(row, true));
+    });
+
+    return envelopes;
+  }
+
+  async getUserEnvelopes (username: string): Promise<DomainEnvelope<any>[]> {
+    let envelopes: DomainEnvelope<any>[];
+
+    const posts = await this.getUserPosts(username);
+    const mods = await this.getUserModerations(username);
+    const conns = await this.getUserConnections(username);
+    const medias = await this.getUserMedia(username);
+
+    envelopes = [
+      ...posts,
+      ...mods,
+      ...conns,
+      ...medias,
+    ].sort((a, b) => {
+      if (a.id > b.id) return 1;
+      return -1;
+    });
+
+    return envelopes;
+  }
 
   async getUserUploads (username: string, order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<any, number>> {
     const { tld, subdomain } = parseUsername(username);
@@ -1277,25 +1414,6 @@ export class IndexerManager {
     this.mediaDao = new MediaDAOImpl(this.engine);
   }
 
-  decodeBase64Image(dataString = ''): {
-    type: string;
-    data: Buffer;
-  } {
-    const matches = dataString
-      .replace('\n', '')
-      // eslint-disable-next-line no-useless-escape
-      .match(/^data:([A-Za-z-+\/]+);base64,(.+)$/) || [];
-
-    if (matches.length !== 3) {
-      throw new Error('Invalid input string');
-    }
-
-    return {
-      type: matches[1],
-      data: new Buffer(matches[2], 'base64'),
-    };
-  }
-
   private async dbExists () {
     try {
       await fs.promises.access(this.dbPath, fs.constants.F_OK);
@@ -1429,22 +1547,6 @@ export class IndexerManager {
     if (!row) return 0;
 
     return row.index;
-  };
-
-  getNextNeworkId = (username: string, tld: string): string => {
-    return crypto.randomBytes(8).toString('hex');
-    // const row = this.engine.first(`
-    //   SELECT network_id FROM envelopes
-    //   WHERE tld = @tld AND subdomain = @username
-    //   ORDER BY network_id DESC
-    // `, {
-    //   username,
-    //   tld,
-    // });
-    //
-    // if (!row) return 0;
-    //
-    // return 1 + Number(row.network_id);
   };
 
   private insertOrUpdateBlobInfo = async (tld: string, merkleRoot: string): Promise<void> => {
