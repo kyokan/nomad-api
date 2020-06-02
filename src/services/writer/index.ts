@@ -339,13 +339,15 @@ async function createEnvelope(tld: string, params: WriterEnvelopeParams): Promis
 
   let envelope: DomainEnvelope<any> | undefined;
 
+  if (!networkId || !refhash || !createAt) return undefined;
+
   if (post) {
     envelope = new DomainEnvelope(
       0,
       tld,
       null,
       networkId,
-      Buffer.from(refhash, 'hex'),
+      refhash,
       createAt,
       new DomainPost(
         0,
@@ -368,7 +370,7 @@ async function createEnvelope(tld: string, params: WriterEnvelopeParams): Promis
       tld,
       null,
       networkId,
-      Buffer.from(refhash, 'hex'),
+      refhash,
       createAt,
       new DomainConnection(
         0,
@@ -386,7 +388,7 @@ async function createEnvelope(tld: string, params: WriterEnvelopeParams): Promis
       tld,
       null,
       networkId,
-      Buffer.from(refhash, 'hex'),
+      refhash,
       createAt,
       new DomainModeration(
         0,
@@ -403,7 +405,7 @@ async function createEnvelope(tld: string, params: WriterEnvelopeParams): Promis
       tld,
       null,
       networkId,
-      Buffer.from(refhash, 'hex'),
+      refhash,
       createAt,
       new DomainMedia(
         0,
