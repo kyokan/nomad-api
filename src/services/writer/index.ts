@@ -20,6 +20,7 @@ import {Media as DomainMedia} from 'ddrp-indexer/dist/domain/Media';
 import crypto from "crypto";
 import {createRefhash} from 'ddrp-js/dist/social/refhash'
 import logger from "../../util/logger";
+import {trackAttempt} from "../../util/matomo";
 
 export class Writer {
   client: DDRPDClient;
@@ -87,6 +88,7 @@ export class Writer {
 
   setRoutes(app: Express) {
     app.post(`/writer/precommit`, jsonParser, async (req, res) => {
+      trackAttempt('Precommit Blob', req);
       const {
         tld,
         post,
@@ -147,6 +149,7 @@ export class Writer {
     });
 
     app.get('/blob/:blobName', async (req, res) => {
+      trackAttempt('Get Blob Info', req);
       const blobName = req.params.blobName;
 
       try {
@@ -160,6 +163,7 @@ export class Writer {
     });
 
     app.post(`/writer/commit`, jsonParser, async (req, res) => {
+      trackAttempt('Commit Blob', req);
       const {
         tld,
         post,
