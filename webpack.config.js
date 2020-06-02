@@ -48,7 +48,7 @@ module.exports = [
     mode: isProd ? 'production' : 'development',
     entry: './src/dev/harness.ts',
     target: 'web',
-    externals: [nodeExternals()],
+    // externals: [nodeExternals()],
     resolve: {
       extensions: ['.ts', '.js'],
     },

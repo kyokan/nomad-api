@@ -60,7 +60,9 @@ export class RestServer {
       });
     }
 
-    this.app.get('/health', (req, res) => res.send(makeResponse('ok')));
+    this.app.get('/health', (req, res) => {
+      res.send(makeResponse('ok'))
+    });
   }
 
   start() {

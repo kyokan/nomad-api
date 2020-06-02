@@ -1,6 +1,8 @@
 import {RestServerResponse} from "../util/rest";
-
+import SECP256k1Signer from 'ddrp-js/dist/crypto/signer'
+import {create} from "domain";
 healthCheck();
+
 
 (async function () {
   await getPostsCheck('/posts');
@@ -19,27 +21,70 @@ healthCheck();
   await getPostsCheck('/tags?tags=bug');
   await getUserProfileCheck('/users/9325/profile');
 
+  const offsetResp = await fetch('/blob/9325');
+  const offsetJson = await offsetResp.json();
+  const offset = offsetJson.payload.nextOffset;
+
+  const createdAt = Math.floor(Date.now()/1000) * 1000;
+  const params = {
+    "tld": "9325",
+    "post": {
+      "body": "hello, world 8",
+      "title": null,
+      "reference": null,
+      "topic": null,
+      "tags": ["test"]
+    },
+    date: createdAt,
+    offset,
+  };
+
+  const json = await precommit(params);
+  console.log('precommit', json.payload);
+
+  const fixedParams = {
+    ...params,
+    networkId: json.payload.envelope.id,
+    refhash: json.payload.refhash,
+    date: createdAt,
+  };
+
+  // const signer = SECP256k1Signer.fromHexPrivateKey(
+  //   'xxx'
+  // );
+  // const sig = signer.sign(Buffer.from(json.payload.sealedHash, 'hex'));
+  //
+  // await wait(500);
+  //
+  // console.log(sig.toString('hex'))
+  //
+  // const resp2 = await fetch(`/writer/commit`, {
+  //   method: 'POST',
+  //   headers: {
+  //     'Content-Type': 'application/json',
+  //   },
+  //   body: JSON.stringify({
+  //     ...fixedParams,
+  //     sealedHash: json.payload.sealedHash,
+  //     sig: sig.toString('hex'),
+  //   }),
+  // });
+  //
+  // const json2 = await resp2.json();
+  // console.log(json2);
+})();
+
+async function precommit(params: any) {
   const resp = await fetch(`/writer/precommit`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      "tld": "9325",
-      "post": {
-        "body": "hello, world",
-        "title": null,
-        "reference": null,
-        "topic": null,
-        "tags": []
-      }
-    }),
-  })
+    body: JSON.stringify(params),
+  });
 
-  const json = await resp.json();
-  console.log(json);
-
-})();
+  return await resp.json();
+}
 
 
 async function healthCheck() {
@@ -112,4 +157,10 @@ function assert(a: any, b: any, text: string): boolean {
     throw new Error('Assertion Error');
   }
   return a === b;
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise(resolve => {
+    setTimeout(resolve, ms);
+  });
 }
