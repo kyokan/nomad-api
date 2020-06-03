@@ -7,5 +7,6 @@
   "baseIP": "",
   "tokenAuth": "",
   "handshakeBasePath": "",
-  "handshakePort": ""
+  "handshakePort": "",
+  "signers": {}
 }
