@@ -1,3 +1,4 @@
+import blake2b from 'blake2b';
 import {Envelope as WireEnvelope} from "ddrp-js/dist/social/Envelope";
 import {Post as WirePost} from "ddrp-js/dist/social/Post";
 import {Connection as WireConnection} from "ddrp-js/dist/social/Connection";
@@ -16,6 +17,8 @@ import {
   ModerationType as DomainModerationType,
 } from 'ddrp-indexer/dist/domain/Moderation';
 import {Media as DomainMedia} from 'ddrp-indexer/dist/domain/Media';
+import {ConnectionBody, MediaBody, ModerationBody, PostBody} from "../constants";
+import crypto from "crypto";
 
 export const mapWireToEnvelope = async (tld: string, subdomain: string, wire: WireEnvelope): Promise<DomainEnvelope<DomainPost|DomainConnection|DomainModeration|DomainMedia>> => {
   const {
@@ -121,3 +124,207 @@ function mapWireModerationToDomainModeration(wireModeration: WireModeration): Do
     wireModeration.moderationType() as DomainModerationType,
   );
 }
+
+export type WriterEnvelopeParams = {
+  post?: PostBody;
+  connection?: ConnectionBody;
+  moderation?: ModerationBody;
+  media?: MediaBody;
+  refhash?: string;
+  networkId?: string;
+  createAt?: Date;
+  nameIndex?: number;
+}
+
+export async function mapBodyToEnvelope(tld: string, params: WriterEnvelopeParams): Promise<WireEnvelope | undefined> {
+  const {
+    post,
+    connection,
+    moderation,
+    media,
+    refhash,
+    networkId,
+    createAt,
+    nameIndex = 0,
+  } = params;
+
+  if (refhash && networkId && createAt) {
+    return createEnvelope(tld, params);
+  }
+
+  let envelope: DomainEnvelope<any> | undefined;
+
+  if (post) {
+    envelope = await DomainEnvelope.createWithMessage(
+      0,
+      tld,
+      null,
+      networkId || crypto.randomBytes(8).toString('hex'),
+      new DomainPost(
+        0,
+        post.body,
+        post.title,
+        post.reference,
+        post.topic,
+        post.tags,
+        0,
+        0,
+        0,
+      )
+    );
+  }
+
+  if (connection) {
+    envelope = await DomainEnvelope.createWithMessage(
+      0,
+      tld,
+      null,
+      networkId || crypto.randomBytes(8).toString('hex'),
+      new DomainConnection(
+        0,
+        connection.tld,
+        connection.subdomain,
+        connection.type,
+      ),
+    );
+  }
+
+  if (moderation) {
+    envelope = await DomainEnvelope.createWithMessage(
+      0,
+      tld,
+      null,
+      networkId || crypto.randomBytes(8).toString('hex'),
+      new DomainModeration(
+        0,
+        moderation.reference,
+        moderation.type,
+      ),
+    )
+  }
+
+  if (media) {
+    envelope = await DomainEnvelope.createWithMessage(
+      0,
+      tld,
+      null,
+      networkId || crypto.randomBytes(8).toString('hex'),
+      new DomainMedia(
+        0,
+        media.filename,
+        media.mimeType,
+        Buffer.from(media.content, 'hex'),
+      ),
+    )
+  }
+
+  return envelope!.toWire(nameIndex);
+}
+
+export async function createEnvelope(tld: string, params: WriterEnvelopeParams): Promise<WireEnvelope | undefined> {
+  const {
+    post,
+    connection,
+    moderation,
+    media,
+    networkId,
+    refhash,
+    createAt,
+    nameIndex = 0,
+  } = params;
+
+  let envelope: DomainEnvelope<any> | undefined;
+
+  if (!networkId || !refhash || !createAt) return undefined;
+
+  if (post) {
+    envelope = new DomainEnvelope(
+      0,
+      tld,
+      null,
+      networkId,
+      refhash,
+      createAt,
+      new DomainPost(
+        0,
+        post.body,
+        post.title,
+        post.reference,
+        post.topic,
+        post.tags,
+        0,
+        0,
+        0,
+      ),
+      null,
+    );
+  }
+
+  if (connection) {
+    envelope = new DomainEnvelope(
+      0,
+      tld,
+      null,
+      networkId,
+      refhash,
+      createAt,
+      new DomainConnection(
+        0,
+        connection.tld,
+        connection.subdomain,
+        connection.type,
+      ),
+      null,
+    );
+  }
+
+  if (moderation) {
+    envelope = new DomainEnvelope(
+      0,
+      tld,
+      null,
+      networkId,
+      refhash,
+      createAt,
+      new DomainModeration(
+        0,
+        moderation.reference,
+        moderation.type,
+      ),
+      null,
+    )
+  }
+
+  if (media) {
+    envelope = new DomainEnvelope(
+      0,
+      tld,
+      null,
+      networkId,
+      refhash,
+      createAt,
+      new DomainMedia(
+        0,
+        media.filename,
+        media.mimeType,
+        Buffer.from(media.content, 'hex'),
+      ),
+      null
+    )
+  }
+
+  return envelope!.toWire(nameIndex);
+}
+
+export function hashPostBody(post: PostBody): Buffer {
+  const h = blake2b(32);
+  h.update(Buffer.from(post.title || '', 'utf-8'));
+  h.update(Buffer.from(post.body || '', 'utf-8'));
+  h.update(Buffer.from(post.reference || '', 'utf-8'));
+  h.update(Buffer.from(post.topic || '', 'utf-8'));
+  post.tags.forEach(tag => {
+    h.update(Buffer.from(tag, 'utf-8'));
+  })
+  return Buffer.from(h.digest());
+}
+

@@ -55,6 +55,9 @@ healthCheck();
   // const signer = SECP256k1Signer.fromHexPrivateKey(
   //   'xxx'
   // );
+  //
+  // console.log(signer.sign(Buffer.from('0e5751c026e543b2e8ab2eb06099daa1d1e5df47778f7787faab45cdf12fe3a8', 'hex')).toString('hex'))
+
   // const sig = signer.sign(Buffer.from(json.payload.sealedHash, 'hex'));
   //
   // await wait(500);

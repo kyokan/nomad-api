@@ -1,39 +1,33 @@
 import DDRPDClient from "ddrp-js/dist/ddrp/DDRPDClient";
 import SECP256k1Signer from 'ddrp-js/dist/crypto/signer'
-import {Envelope, encodeEnvelope} from "ddrp-js/dist/social/Envelope";
+import {encodeEnvelope, Envelope} from "ddrp-js/dist/social/Envelope";
 import BlobWriter from "ddrp-js/dist/ddrp/BlobWriter";
 import {sealHash} from "ddrp-js/dist/crypto/hash";
 import {sealAndSign} from "ddrp-js/dist/crypto/signatures";
-import {SUBDOMAIN_MAGIC} from "ddrp-js/dist/social/Subdomain";
+import {encodeSubdomain, Subdomain, SUBDOMAIN_MAGIC} from "ddrp-js/dist/social/Subdomain";
 import {IndexerManager} from "../indexer";
-import {Express} from "express";
+import {Express, Request, Response} from "express";
 import bodyParser from "body-parser";
 import {makeResponse} from "../../util/rest";
-const jsonParser = bodyParser.json();
-const SERVICE_KEY = process.env.SERVICE_KEY;
-
-import {Envelope as DomainEnvelope} from 'ddrp-indexer/dist/domain/Envelope';
-import {Post as DomainPost} from 'ddrp-indexer/dist/domain/Post';
-import {
-  Connection as DomainConnection, ConnectionType,
-  Follow as DomainFollow,
-  Block as DomainBlock,
-} from 'ddrp-indexer/dist/domain/Connection';
-import {Moderation as DomainModeration, ModerationType} from 'ddrp-indexer/dist/domain/Moderation';
-import {Media as DomainMedia} from 'ddrp-indexer/dist/domain/Media';
-import crypto from "crypto";
-import {createRefhash} from 'ddrp-js/dist/social/refhash'
+import {createRefhash} from 'ddrp-js/dist/social/refhash';
 import logger from "../../util/logger";
 import {trackAttempt} from "../../util/matomo";
 import config from "../../../config.json";
+import {SubdomainDBRow, SubdomainManager} from "../subdomains";
+import {createEnvelope, mapBodyToEnvelope} from "../../util/envelope";
+
+const jsonParser = bodyParser.json();
+const SERVICE_KEY = process.env.SERVICE_KEY;
 
 export class Writer {
   client: DDRPDClient;
   indexer: IndexerManager;
+  subdomains: SubdomainManager;
 
-  constructor(opts: {indexer: IndexerManager}) {
+  constructor(opts: {indexer: IndexerManager; subdomains: SubdomainManager}) {
     this.client = new DDRPDClient('127.0.0.1:9098');
     this.indexer = opts.indexer;
+    this.subdomains = opts.subdomains;
   }
 
   async reconstructBlob(tld: string, envelope?: Envelope, date?: Date, broadcast?: boolean): Promise<void> {
@@ -43,13 +37,17 @@ export class Writer {
     if (!tldData || !tldData.privateKey) throw new Error(`cannot find singer for ${tld}`);
 
     const envs = await this.indexer.getUserEnvelopes(tld);
+    const subs = await this.subdomains.getSubdomainByTLD(tld);
 
     const createdAt = date || new Date();
 
     await this.truncateBlob(tld, createdAt);
-    // const writer = new BlobWriter(this.client, txId, 0);
 
     await this.writeAt(tld, 0, Buffer.from(SUBDOMAIN_MAGIC, 'utf-8'));
+
+    for (let j = 0; j < subs.length; j++) {
+      await this.commitSubdomain(tld, subs[j], j + 1, createdAt);
+    }
 
     let offset = 64 * 1024;
 
@@ -57,7 +55,7 @@ export class Writer {
       const shouldBroadcast = broadcast && !envelope && i === envs.length - 1;
       const endOffset = await this.appendEnvelope(
         tld,
-        envs[i].toWire(0),
+        envs[i].toWire(await this.subdomains.getNameIndex(envs[i]?.subdomain, tld)),
         envs[i].createdAt,
         shouldBroadcast,
         offset,
@@ -68,6 +66,25 @@ export class Writer {
     if (envelope && date) {
       await this.appendEnvelope(tld, envelope, date, broadcast, offset);
     }
+  }
+
+  async commitSubdomain(tld: string, sub: SubdomainDBRow, nameIndex = 0, date: Date): Promise<void> {
+    // @ts-ignore
+    const tldData = config.signers[tld];
+
+    if (!tldData || !tldData.privateKey) throw new Error(`cannot find singer for ${tld}`);
+    const signer = SECP256k1Signer.fromHexPrivateKey(tldData.privateKey);
+
+    const txId = await this.client.checkout(tld);
+    const writer = new BlobWriter(this.client, txId, 3);
+    await encodeSubdomainAsync(writer, {
+      name: sub.name,
+      index: nameIndex,
+      publicKey: Buffer.from(sub.public_key, 'hex'),
+    });
+    const merkleRoot = await this.client.preCommit(txId);
+    const sig = sealAndSign(signer, tld, date, merkleRoot);
+    await this.client.commit(txId, date, sig, false);
   }
 
   async truncateBlob(tld: string, date?: Date, broadcast?: boolean): Promise<void> {
@@ -174,6 +191,60 @@ export class Writer {
     return this.client.commit(txId, date, Buffer.from(sig, 'hex'), true);
   }
 
+  handleAppendBlob = async (req: Request, res: Response) => {
+    const blobName = req.params.blobName;
+
+    if (!SERVICE_KEY || req.headers['service-key'] !== SERVICE_KEY) {
+      res.status(401).send(makeResponse('unauthorized', true));
+      return;
+    }
+
+    trackAttempt('append to blob', req, blobName);
+
+    const {
+      post,
+      connection,
+      media,
+      moderation,
+      broadcast,
+      date,
+      refhash,
+      networkId,
+    } = req.body;
+
+    if (!blobName || typeof blobName !== 'string') {
+      return res.status(400)
+        .send(makeResponse('invalid tld', true));
+    }
+
+    const createdAt = date ? new Date(date) : new Date();
+
+    let envelope: Envelope | undefined;
+
+    try {
+      envelope = await mapBodyToEnvelope(blobName, {
+        post,
+        connection,
+        moderation,
+        media,
+        createAt: createdAt,
+        refhash,
+        networkId,
+      });
+
+      if (!envelope) {
+        return res.status(400)
+          .send(makeResponse('invalid envelope', true));
+      }
+
+      await this.appendEnvelope(blobName, envelope, createdAt, broadcast);
+
+      return res.send(makeResponse(envelope));
+    } catch (e) {
+      return res.status(500)
+        .send(makeResponse(e.message, true));
+    }
+  };
 
   setRoutes(app: Express) {
     app.post('/blob/:blobName/format', jsonParser, async (req, res) => {
@@ -204,60 +275,7 @@ export class Writer {
       }
     });
 
-    app.post(`/blob/:blobName/append`, jsonParser, async (req, res) => {
-      const blobName = req.params.blobName;
-
-      if (!SERVICE_KEY || req.headers['service-key'] !== SERVICE_KEY) {
-        res.status(401).send(makeResponse('unauthorized', true));
-        return;
-      }
-
-      trackAttempt('append to blob', req, blobName);
-
-      const {
-        post,
-        connection,
-        media,
-        moderation,
-        broadcast,
-        date,
-        refhash,
-        networkId,
-      } = req.body;
-
-      if (!blobName || typeof blobName !== 'string') {
-        return res.status(400)
-          .send(makeResponse('invalid tld', true));
-      }
-
-      const createdAt = date ? new Date(date) : new Date();
-
-      let envelope: Envelope | undefined;
-
-      try {
-        envelope = await mapBodyToEnvelope(blobName, {
-          post,
-          connection,
-          moderation,
-          media,
-          createAt: createdAt,
-          refhash,
-          networkId,
-        });
-
-        if (!envelope) {
-          return res.status(400)
-            .send(makeResponse('invalid envelope', true));
-        }
-
-        await this.appendEnvelope(blobName, envelope, createdAt, broadcast);
-
-        return res.send(makeResponse(envelope));
-      } catch (e) {
-        return res.status(500)
-          .send(makeResponse(e.message, true));
-      }
-    });
+    app.post(`/blob/:blobName/append`, jsonParser, this.handleAppendBlob);
 
     app.post(`/relayer/precommit`, jsonParser, async (req, res) => {
       trackAttempt('Precommit Blob', req);
@@ -406,219 +424,6 @@ export class Writer {
   }
 }
 
-export type WriterEnvelopeParams = {
-  post?: PostBody;
-  connection?: ConnectionBody;
-  moderation?: ModerationBody;
-  media?: MediaBody;
-  refhash?: string;
-  networkId?: string;
-  createAt?: Date;
-}
-
-export type PostBody = {
-  body: string;
-  title: string | null;
-  reference: string | null;
-  topic: string | null;
-  tags: string[];
-}
-
-export type ConnectionBody = {
-  tld: string;
-  subdomain: string | null;
-  type: ConnectionType;
-}
-
-export type MediaBody = {
-  filename: string;
-  mimeType: string;
-  content: string;
-}
-
-export type ModerationBody = {
-  reference: string;
-  type: ModerationType;
-}
-
-async function mapBodyToEnvelope(tld: string, params: WriterEnvelopeParams): Promise<Envelope|undefined> {
-  const {
-    post,
-    connection,
-    moderation,
-    media,
-    refhash,
-    networkId,
-    createAt,
-  } = params;
-
-  if (refhash && networkId && createAt) {
-    return createEnvelope(tld, params);
-  }
-
-  let envelope: DomainEnvelope<any> | undefined;
-
-  if (post) {
-    envelope = await DomainEnvelope.createWithMessage(
-      0,
-      tld,
-      null,
-      networkId || crypto.randomBytes(8).toString('hex'),
-      new DomainPost(
-        0,
-        post.body,
-        post.title,
-        post.reference,
-        post.topic,
-        post.tags,
-        0,
-        0,
-        0,
-      )
-    );
-  }
-
-  if (connection) {
-    envelope = await DomainEnvelope.createWithMessage(
-      0,
-      tld,
-      null,
-      networkId || crypto.randomBytes(8).toString('hex'),
-      new DomainConnection(
-        0,
-        connection.tld,
-        connection.subdomain,
-        connection.type,
-      ),
-    );
-  }
-
-  if (moderation) {
-    envelope = await DomainEnvelope.createWithMessage(
-      0,
-      tld,
-      null,
-      networkId || crypto.randomBytes(8).toString('hex'),
-      new DomainModeration(
-        0,
-        moderation.reference,
-        moderation.type,
-      ),
-    )
-  }
-
-  if (media) {
-    envelope = await DomainEnvelope.createWithMessage(
-      0,
-      tld,
-      null,
-      networkId || crypto.randomBytes(8).toString('hex'),
-      new DomainMedia(
-        0,
-        media.filename,
-        media.mimeType,
-        Buffer.from(media.content, 'hex'),
-      ),
-    )
-  }
-
-  return envelope!.toWire(0);
-}
-
-async function createEnvelope(tld: string, params: WriterEnvelopeParams): Promise<Envelope|undefined> {
-  const {
-    post,
-    connection,
-    moderation,
-    media,
-    networkId,
-    refhash,
-    createAt,
-  } = params;
-
-  let envelope: DomainEnvelope<any> | undefined;
-
-  if (!networkId || !refhash || !createAt) return undefined;
-
-  if (post) {
-    envelope = new DomainEnvelope(
-      0,
-      tld,
-      null,
-      networkId,
-      refhash,
-      createAt,
-      new DomainPost(
-        0,
-        post.body,
-        post.title,
-        post.reference,
-        post.topic,
-        post.tags,
-        0,
-        0,
-        0,
-      ),
-      null,
-    );
-  }
-
-  if (connection) {
-    envelope = new DomainEnvelope(
-      0,
-      tld,
-      null,
-      networkId,
-      refhash,
-      createAt,
-      new DomainConnection(
-        0,
-        connection.tld,
-        connection.subdomain,
-        connection.type,
-      ),
-      null,
-    );
-  }
-
-  if (moderation) {
-    envelope = new DomainEnvelope(
-      0,
-      tld,
-      null,
-      networkId,
-      refhash,
-      createAt,
-      new DomainModeration(
-        0,
-        moderation.reference,
-        moderation.type,
-      ),
-      null,
-    )
-  }
-
-  if (media) {
-    envelope = new DomainEnvelope(
-      0,
-      tld,
-      null,
-      networkId,
-      refhash,
-      createAt,
-      new DomainMedia(
-        0,
-        media.filename,
-        media.mimeType,
-        Buffer.from(media.content, 'hex'),
-      ),
-      null
-    )
-  }
-
-  return envelope!.toWire(0);
-}
-
 
 async function encodeEnvelopeAsync(writer: BlobWriter, envelope: Envelope): Promise<number> {
   return new Promise((resolve, reject) => encodeEnvelope(writer, envelope, (err, numOfBytes) => {
@@ -627,4 +432,13 @@ async function encodeEnvelopeAsync(writer: BlobWriter, envelope: Envelope): Prom
     }
     resolve(numOfBytes);
   }));
-};
+}
+
+async function encodeSubdomainAsync(writer: BlobWriter, sub: Subdomain): Promise<number> {
+  return new Promise((resolve, reject) => encodeSubdomain(writer, sub, (err, numOfBytes) => {
+    if (err) {
+      return reject(err);
+    }
+    resolve(numOfBytes);
+  }));
+}

@@ -2,6 +2,7 @@ import bodyParser from 'body-parser';
 import {RestServer} from "./services/rest-server";
 import {DDRPManager} from "./services/ddrp";
 import {IndexerManager} from "./services/indexer";
+import {SubdomainManager} from "./services/subdomains";
 import {makeResponse} from "./util/rest";
 import Timeout = NodeJS.Timeout;
 import {Envelope as DomainEnvelope} from 'ddrp-indexer/dist/domain/Envelope';
@@ -20,12 +21,16 @@ let watchInterval: Timeout;
   const server = new RestServer();
   const ddrp = new DDRPManager();
   const indexer = new IndexerManager();
+  const subdomains = new SubdomainManager();
   const writer = new Writer({
     indexer,
+    subdomains,
   });
+  subdomains.writer = writer;
 
   await ddrp.start();
   await indexer.start();
+  await subdomains.start();
 
   // Ingest on every blob sync
   ddrp.onNameSynced(indexer.maybeStreamBlob);
@@ -34,6 +39,7 @@ let watchInterval: Timeout;
 
   indexer.setRoutes(app);
   writer.setRoutes(app);
+  subdomains.setRoutes(app);
 
   app.post('/services/rescan', async function handleRescan(req, res) {
     if (SERVICE_KEY && req.headers['service-key'] !== SERVICE_KEY) {

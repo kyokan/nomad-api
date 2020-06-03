@@ -42,7 +42,6 @@ import {extendFilter, Filter} from "../../util/filter";
 import {trackAttempt} from "../../util/matomo";
 const appDataPath = './build';
 const dbPath = path.join(appDataPath, 'nomad.db');
-const namedbPath = path.join(appDataPath, 'names.db');
 const pendingDbPath = path.join(appDataPath, 'pending.db');
 import {mapWireToEnvelope} from "../../util/envelope";
 import crypto from 'crypto';
@@ -78,10 +77,8 @@ export class IndexerManager {
   mediaDao?: MediaDAOImpl;
   client: DDRPDClient;
   engine: SqliteEngine;
-  nameDB: SqliteEngine;
   pendingDB: SqliteEngine;
   dbPath: string;
-  namedbPath: string;
   pendingDbPath: string;
   resourcePath: string;
 
@@ -89,10 +86,8 @@ export class IndexerManager {
     const client = new DDRPDClient('127.0.0.1:9098');
     this.client = client;
     this.engine = new SqliteEngine(opts?.dbPath || dbPath);
-    this.nameDB = new SqliteEngine(opts?.namedbPath || namedbPath);
     this.pendingDB = new SqliteEngine(opts?.pendingDbPath || pendingDbPath);
     this.dbPath = opts?.dbPath || dbPath;
-    this.namedbPath = opts?.namedbPath || namedbPath;
     this.pendingDbPath = opts?.pendingDbPath || pendingDbPath;
     this.resourcePath = opts?.resourcePath || 'resources';
   }
@@ -1045,7 +1040,7 @@ export class IndexerManager {
     const nameIndex = wire.nameIndex;
     const subdomain = subdomains[nameIndex] || '';
 
-    if (subdomains.length && !subdomain) {
+    if (nameIndex > 0 && subdomains.length && !subdomain) {
       logger.error(`cannot find subdomain`, {
         networkd_id: wire.id,
         tld: tld,
@@ -1237,28 +1232,61 @@ export class IndexerManager {
   findNextOffset = async (tld: string): Promise<number> => {
     let offset = 0;
     let timeout: any;
-    const r = new BufferedReader(new BlobReader(tld, this.client), 1024 * 1024);
-    return new Promise((resolve, reject) => {
-      timeout = setTimeout(() => resolve(offset), 5000);
-      iterateAllEnvelopes(r, (err, env) => {
-        if (timeout) clearTimeout(timeout);
 
-        if (err) {
-          reject(err);
-          return false;
-        }
+    const br = new BlobReader(tld, this.client);
+    const r = new BufferedReader(br, 4 * 1024 * 1024 - 5);
+    const isSubdomain = await this.isSubdomainBlob(r);
 
-        if (env === null) {
-          resolve(offset);
-          return false;
-        }
+    if (isSubdomain) {
+      await this.scanSubdomainData(r, tld);
+      return new Promise((resolve, reject) => {
+        timeout = setTimeout(() => resolve(offset), 5000);
+        iterateAllEnvelopes(r, (err, env) => {
+          if (timeout) clearTimeout(timeout);
 
-        // @ts-ignore
-        offset = r.off;
-        timeout = setTimeout(() => resolve(offset), 100);
-        return true;
+          if (err) {
+            reject(err);
+            return false;
+          }
+
+          if (env === null) {
+            resolve(offset);
+            return false;
+          }
+
+          // @ts-ignore
+          offset = r.off;
+          timeout = setTimeout(() => resolve(offset), 100);
+          return true;
+        });
       });
-    });
+    } else {
+      const newBR = new BufferedReader(new BlobReader(tld, this.client), 4 * 1024 * 1024 - 5);
+      return new Promise((resolve, reject) => {
+        timeout = setTimeout(() => resolve(offset), 5000);
+        iterateAllEnvelopes(newBR, (err, env) => {
+          if (timeout) clearTimeout(timeout);
+
+          if (err) {
+            reject(err);
+            return false;
+          }
+
+          if (env === null) {
+            resolve(offset);
+            return false;
+          }
+
+          // @ts-ignore
+          offset = r.off;
+          timeout = setTimeout(() => resolve(offset), 100);
+          return true;
+        });
+      });
+    }
+
+
+
   };
 
   maybeStreamBlob = async (tld: string): Promise<void> => {
@@ -1368,6 +1396,7 @@ export class IndexerManager {
       }, 500);
 
       iterateAllEnvelopes(r, (err, env) => {
+        // console.log(env);
         if (timeout) clearTimeout(timeout);
 
         if (err) {
@@ -1406,7 +1435,6 @@ export class IndexerManager {
     }
 
     await this.engine.open();
-    await this.nameDB.open();
     await this.pendingDB.open();
     this.postsDao = new PostsDAOImpl(this.engine);
     this.connectionsDao = new ConnectionsDAOImpl(this.engine);
@@ -1428,10 +1456,8 @@ export class IndexerManager {
 
   private async copyDB () {
     const nomadSrc = path.join(this.resourcePath, 'nomad.db');
-    const nameSrc = path.join(this.resourcePath, 'names.db');
     const pendingSrc = path.join(this.resourcePath, 'pending.db');
     await fs.promises.copyFile(nomadSrc, this.dbPath);
-    await fs.promises.copyFile(nameSrc, this.namedbPath);
     await fs.promises.copyFile(pendingSrc, this.pendingDbPath);
   }
 
