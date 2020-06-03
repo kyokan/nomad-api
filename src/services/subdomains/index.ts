@@ -82,6 +82,7 @@ export class SubdomainManager {
     if (!subdomain) return 0;
     const subs = await this.getSubdomainByTLD(tld);
     const nameIndex = subs.map(({ name }) => name).indexOf(subdomain) + 1;
+    console.log(nameIndex, subdomain, tld)
     return nameIndex;
   }
 

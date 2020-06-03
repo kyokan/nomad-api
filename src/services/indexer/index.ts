@@ -766,7 +766,7 @@ export class IndexerManager {
       SELECT e.id as envelope_id, m.id as media_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
         m.filename, m.mime_type, m.content
       FROM media m JOIN envelopes e ON m.envelope_id = e.id
-      WHERE e.tld = @tld AND e.subdomain = @subdomain
+      WHERE e.tld = @tld
     `, { tld, subdomain }, row => {
       envelopes.push(new DomainEnvelope<DomainMedia>(
         row.envelope_id,
@@ -799,7 +799,7 @@ export class IndexerManager {
       SELECT e.id as envelope_id, c.id as connection_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
         c.tld as connection_tld, c.subdomain as connection_subdomain, c.connection_type
       FROM connections c JOIN envelopes e ON c.envelope_id = e.id
-      WHERE e.tld = @tld AND e.subdomain = @subdomain
+      WHERE e.tld = @tld
     `, { tld, subdomain }, row => {
       envelopes.push(new DomainEnvelope<DomainConnection>(
         row.envelope_id,
@@ -832,7 +832,7 @@ export class IndexerManager {
       SELECT e.id as envelope_id, m.id as moderation_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
         m.reference, m.moderation_type
       FROM moderations m JOIN envelopes e ON m.envelope_id = e.id
-      WHERE e.tld = @tld AND e.subdomain = @subdomain
+      WHERE e.tld = @tld
     `, { tld, subdomain }, row => {
       envelopes.push(new DomainEnvelope<DomainModeration>(
         row.envelope_id,
@@ -864,7 +864,7 @@ export class IndexerManager {
       SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
               p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
       FROM posts p JOIN envelopes e ON p.envelope_id = e.id
-      WHERE e.tld = @tld AND e.subdomain = @subdomain
+      WHERE e.tld = @tld
     `, { tld, subdomain }, row => {
       envelopes.push(this.mapPost(row, true));
     });
