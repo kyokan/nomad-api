@@ -1443,8 +1443,8 @@ export class IndexerManager {
   async streamAllBlobs(): Promise<void> {
     await this.streamBlobInfo();
 
-    const tlds = Object.keys(TLD_CACHE);
-    // const tlds = ['5404']
+    // const tlds = Object.keys(TLD_CACHE);
+    const tlds = ['9325']
     for (let i = 0; i < tlds.length; i = i + 19) {
       const selectedTLDs = tlds.slice(i, i + 19).filter(tld => !!tld);
       await this.streamNBlobs(selectedTLDs);
@@ -1467,10 +1467,6 @@ export class IndexerManager {
       this.client.streamBlobInfo(start, 100, async (info) => {
         if (timeout) clearTimeout(timeout);
 
-        if (shouldStreamContent) {
-          await this.insertOrUpdateBlobInfo(info.name, info.merkleRoot);
-        }
-
         TLD_CACHE[info.name] = info.merkleRoot;
         lastUpdate = info.name;
         counter++;
@@ -1483,117 +1479,7 @@ export class IndexerManager {
 
       timeout = setTimeout(resolve, 500);
     })
-  }
-
-  private insertOrUpdateSubdomain = async (index: number, tld: string, publicKey: string, name: string): Promise<void> => {
-    const row = await this.getSubdomainByIndex(index, tld);
-
-    if (row) {
-      return this.nameDB.exec(`
-        UPDATE names
-        SET
-          name = @name,
-          "index" = @index,
-          public_key = @publicKey,
-          tld = @tld
-        WHERE
-          "name" = @name AND tld = @tld
-      `, {
-          name,
-          index,
-          publicKey,
-          tld,
-        });
-    } else {
-      return this.nameDB.exec(`
-        INSERT INTO names (name, "index", public_key, tld)
-        VALUES (@name, @index, @publicKey, @tld)
-      `, {
-        name,
-        index,
-        publicKey,
-        tld,
-      });
-    }
   };
-
-  private getSubdomainByIndex = (index: number, tld: string): Subdomain | null => {
-    const row = this.nameDB.first(`
-      SELECT * FROM names
-      WHERE "index" = @index AND tld = @tld
-    `, {
-      index,
-      tld,
-    });
-
-    if (!row) return null;
-
-    return {
-      name: row?.name,
-      index: row?.index,
-      publicKey: Buffer.from(row?.public_key, 'hex'),
-    }
-  };
-
-  getNameIndexBySubdomain = (username: string, tld: string): number => {
-    const row = this.nameDB.first(`
-      SELECT "index" FROM names n
-      WHERE name = @username AND tld = @tld
-    `, {
-      username,
-      tld,
-    });
-
-    if (!row) return 0;
-
-    return row.index;
-  };
-
-  private insertOrUpdateBlobInfo = async (tld: string, merkleRoot: string): Promise<void> => {
-    const row = await this.getBlobInfo(tld);
-
-    if (row) {
-      if (row.merkleRoot !== merkleRoot) {
-        return this.nameDB.exec(`
-          UPDATE blobs
-          SET
-            merkleRoot = @merkleRoot,
-            last_scanned_at = @lastScannedAt
-          WHERE tld = @tld
-        `, {
-          merkleRoot,
-          lastScannedAt: Date.now(),
-          tld,
-        });
-      }
-    } else {
-      return this.nameDB.exec(`
-        INSERT INTO blobs (tld, merkleRoot, last_scanned_at)
-        VALUES (@tld, @merkleRoot, @lastScannedAt)
-      `, {
-        merkleRoot,
-        lastScannedAt: Date.now(),
-        tld,
-      });
-    }
-  };
-
-  private getBlobInfo = (tld: string): { tld: string; merkleRoot: string; lastScannedAt: string} | null => {
-    const row = this.nameDB.first(`
-      SELECT * FROM blobs
-      WHERE tld = @tld
-    `, {
-      tld,
-    });
-
-    if (!row) return null;
-
-    return {
-      tld: row?.tld,
-      merkleRoot: row?.merkleRoot,
-      lastScannedAt: row?.last_scanned_at,
-    };
-  }
 }
 
 function wait(ms: number): Promise<void> {

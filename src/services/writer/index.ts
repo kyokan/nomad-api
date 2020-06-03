@@ -4,6 +4,7 @@ import {Envelope, encodeEnvelope} from "ddrp-js/dist/social/Envelope";
 import BlobWriter from "ddrp-js/dist/ddrp/BlobWriter";
 import {sealHash} from "ddrp-js/dist/crypto/hash";
 import {sealAndSign} from "ddrp-js/dist/crypto/signatures";
+import {SUBDOMAIN_MAGIC} from "ddrp-js/dist/social/Subdomain";
 import {IndexerManager} from "../indexer";
 import {Express} from "express";
 import bodyParser from "body-parser";
@@ -35,7 +36,90 @@ export class Writer {
     this.indexer = opts.indexer;
   }
 
-  async writeEnvelopeAt(tld: string, envelope: Envelope, offset: number = 0, date?: Date): Promise<void> {
+  async reconstructBlob(tld: string, envelope?: Envelope, date?: Date, broadcast?: boolean): Promise<void> {
+    // @ts-ignore
+    const tldData = config.signers[tld];
+
+    if (!tldData || !tldData.privateKey) throw new Error(`cannot find singer for ${tld}`);
+
+    const envs = await this.indexer.getUserEnvelopes(tld);
+
+    const createdAt = date || new Date();
+
+    await this.truncateBlob(tld, createdAt);
+    // const writer = new BlobWriter(this.client, txId, 0);
+
+    await this.writeAt(tld, 0, Buffer.from(SUBDOMAIN_MAGIC, 'utf-8'));
+
+    let offset = 64 * 1024;
+
+    for (let i = 0; i < envs.length; i++) {
+      const shouldBroadcast = broadcast && !envelope && i === envs.length - 1;
+      const endOffset = await this.appendEnvelope(
+        tld,
+        envs[i].toWire(0),
+        envs[i].createdAt,
+        shouldBroadcast,
+        offset,
+      );
+      offset = endOffset;
+    }
+
+    if (envelope && date) {
+      await this.appendEnvelope(tld, envelope, date, broadcast, offset);
+    }
+  }
+
+  async truncateBlob(tld: string, date?: Date, broadcast?: boolean): Promise<void> {
+    // @ts-ignore
+    const tldData = config.signers[tld];
+
+    if (!tldData || !tldData.privateKey) throw new Error(`cannot find singer for ${tld}`);
+
+    const createdAt = date || new Date();
+
+    const txId = await this.client.checkout(tld);
+    await this.client.truncate(txId);
+    const merkleRoot = await this.client.preCommit(txId);
+    const signer = SECP256k1Signer.fromHexPrivateKey(tldData.privateKey);
+    const sig = sealAndSign(signer, tld, createdAt, merkleRoot);
+    await this.client.commit(txId, createdAt, sig, broadcast);
+  }
+
+  async appendEnvelope(tld: string, envelope: Envelope, date?: Date, broadcast?: boolean, _offset?: number): Promise<number> {
+    // @ts-ignore
+    const tldData = config.signers[tld];
+    const createdAt = date || new Date();
+
+    if (!tldData || !tldData.privateKey) throw new Error(`cannot find singer for ${tld}`);
+
+    const offset = _offset || await this.indexer.findNextOffset(tld);
+    const signer = SECP256k1Signer.fromHexPrivateKey(tldData.privateKey);
+    const txId = await this.client.checkout(tld);
+    const writer = new BlobWriter(this.client, txId, offset);
+    const numOfBytes = await encodeEnvelopeAsync(writer, envelope);
+    const merkleRoot = await this.client.preCommit(txId);
+    const sig = sealAndSign(signer, tld, createdAt, merkleRoot);
+    await this.client.commit(txId, createdAt, sig, broadcast);
+    logger.info(`append envelope`, { tld, offset, networkId: envelope.id });
+    return offset + numOfBytes;
+  }
+
+  async writeAt (tld: string, offset: number = 0, buf: Buffer): Promise<void> {
+    // @ts-ignore
+    const tldData = config.signers[tld];
+    const createdAt = new Date();
+
+    if (!tldData || !tldData.privateKey) throw new Error(`cannot find singer for ${tld}`);
+    const signer = SECP256k1Signer.fromHexPrivateKey(tldData.privateKey);
+    const txId = await this.client.checkout(tld);
+    await this.client.writeAt(txId, offset, buf);
+    const merkleRoot = await this.client.preCommit(txId);
+    const sig = sealAndSign(signer, tld, createdAt, merkleRoot);
+    await this.client.commit(txId, createdAt, sig, false);
+  }
+
+  async writeEnvelopeAt(tld: string, envelope: Envelope, offset: number = 0, date?: Date, broadcast?: boolean): Promise<void> {
     // @ts-ignore
     const tldData = config.signers[tld];
     const createdAt = date || new Date();
@@ -48,7 +132,7 @@ export class Writer {
     await encodeEnvelopeAsync(writer, envelope);
     const merkleRoot = await this.client.preCommit(txId);
     const sig = sealAndSign(signer, tld, createdAt, merkleRoot);
-    await this.client.commit(txId, createdAt, sig, true);
+    await this.client.commit(txId, createdAt, sig, broadcast);
   }
 
   async preCommit(tld: string, envelope: Envelope, offset: number = 0, date?: Date): Promise<{sealedHash: Buffer; txId: number}> {
@@ -92,6 +176,34 @@ export class Writer {
 
 
   setRoutes(app: Express) {
+    app.post('/blob/:blobName/format', jsonParser, async (req, res) => {
+      const blobName = req.params.blobName;
+
+      const {
+        broadcast,
+      } = req.body;
+
+      if (!SERVICE_KEY || req.headers['service-key'] !== SERVICE_KEY) {
+        res.status(401).send(makeResponse('unauthorized', true));
+        return;
+      }
+
+      if (!blobName) {
+        return res.status(400)
+          .send(makeResponse('invalid tld', true));
+      }
+
+      trackAttempt('reformat blob', req, blobName);
+
+      try {
+        await this.reconstructBlob(blobName, broadcast);
+        return res.send(makeResponse('ok'));
+      } catch (e) {
+        return res.status(500)
+          .send(makeResponse(e.message, true));
+      }
+    });
+
     app.post(`/blob/:blobName/append`, jsonParser, async (req, res) => {
       const blobName = req.params.blobName;
 
@@ -107,7 +219,7 @@ export class Writer {
         connection,
         media,
         moderation,
-        // offset,
+        broadcast,
         date,
         refhash,
         networkId,
@@ -138,9 +250,7 @@ export class Writer {
             .send(makeResponse('invalid envelope', true));
         }
 
-        const offset = await this.indexer.findNextOffset(blobName);
-
-        await this.writeEnvelopeAt(blobName, envelope, offset, createdAt);
+        await this.appendEnvelope(blobName, envelope, createdAt, broadcast);
 
         return res.send(makeResponse(envelope));
       } catch (e) {
@@ -149,7 +259,7 @@ export class Writer {
       }
     });
 
-    app.post(`/writer/precommit`, jsonParser, async (req, res) => {
+    app.post(`/relayer/precommit`, jsonParser, async (req, res) => {
       trackAttempt('Precommit Blob', req);
       const {
         tld,
@@ -210,7 +320,7 @@ export class Writer {
       }
     });
 
-    app.get('/blob/:blobName', async (req, res) => {
+    app.get('/blob/:blobName/info', async (req, res) => {
       const blobName = req.params.blobName;
 
       trackAttempt('Get Blob Info', req, blobName);
@@ -225,7 +335,7 @@ export class Writer {
       }
     });
 
-    app.post(`/writer/commit`, jsonParser, async (req, res) => {
+    app.post(`/relayer/commit`, jsonParser, async (req, res) => {
       trackAttempt('Commit Blob', req);
       const {
         tld,
@@ -510,11 +620,11 @@ async function createEnvelope(tld: string, params: WriterEnvelopeParams): Promis
 }
 
 
-async function encodeEnvelopeAsync(writer: BlobWriter, envelope: Envelope) {
-  return new Promise((resolve, reject) => encodeEnvelope(writer, envelope, (err, _) => {
+async function encodeEnvelopeAsync(writer: BlobWriter, envelope: Envelope): Promise<number> {
+  return new Promise((resolve, reject) => encodeEnvelope(writer, envelope, (err, numOfBytes) => {
     if (err) {
       return reject(err);
     }
-    resolve();
+    resolve(numOfBytes);
   }));
 };

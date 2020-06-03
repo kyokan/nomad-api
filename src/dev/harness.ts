@@ -21,7 +21,7 @@ healthCheck();
   await getPostsCheck('/tags?tags=bug');
   await getUserProfileCheck('/users/9325/profile');
 
-  const offsetResp = await fetch('/blob/9325');
+  const offsetResp = await fetch('/blob/9325/info');
   const offsetJson = await offsetResp.json();
   const offset = offsetJson.payload.nextOffset;
 
@@ -49,6 +49,9 @@ healthCheck();
     date: createdAt,
   };
 
+  // const json2 = await precommit(fixedParams);
+  // console.log('precommit2', json2.payload);
+
   // const signer = SECP256k1Signer.fromHexPrivateKey(
   //   'xxx'
   // );
@@ -75,7 +78,7 @@ healthCheck();
 })();
 
 async function precommit(params: any) {
-  const resp = await fetch(`/writer/precommit`, {
+  const resp = await fetch(`/relayer/precommit`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
