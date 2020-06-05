@@ -11,6 +11,15 @@ const appDataPath = './build';
 const namedbPath = path.join(appDataPath, 'names.db');
 import {Envelope as DomainEnvelope} from 'ddrp-indexer/dist/domain/Envelope';
 import {Post as DomainPost} from 'ddrp-indexer/dist/domain/Post';
+import {
+  Connection as DomainConnection,
+  ConnectionType as DomainConnectionType,
+} from 'ddrp-indexer/dist/domain/Connection';
+import {
+  Moderation as DomainModeration,
+  ModerationType as DomainModerationType,
+} from 'ddrp-indexer/dist/domain/Moderation';
+import {Media as DomainMedia} from 'ddrp-indexer/dist/domain/Media';
 
 import {ConnectionBody, MediaBody, PostBody} from "../../constants";
 import {Writer} from "../writer";
@@ -275,7 +284,13 @@ export class SubdomainManager {
       sig,
     } = req.body;
 
-    const { tld, subdomain, signature } = sig || {};
+    const sessionToken = req.headers['x-api-token'];
+    const sessionName = await verifySessionKey(sessionToken);
+    const { tld: sessionTLD, subdomain: sessionSubdomain } = parseUsername(sessionName);
+    const { tld: signedTLD, subdomain: signedSubdomain, signature } = sig || {};
+    const tld = signedTLD || sessionTLD;
+    const subdomain = signedSubdomain || sessionSubdomain;
+
     const mod = { type, reference };
 
     try {
@@ -286,21 +301,27 @@ export class SubdomainManager {
         return res.status(403).send(makeResponse('cannot find subdomain'));
       }
 
-      if (!timestamp || !reference) {
+      if (!reference) {
         return res.status(400).send(makeResponse('invalid reqest'));
       }
 
-      const hash = hashModerationBody(mod, new Date(timestamp));
+      if (!sessionName) {
+        if (signature && public_key) {
+          const hash = hashModerationBody(mod, new Date(timestamp));
 
-      // @ts-ignore
-      const verfied = secp256k1.verify(
-        hash,
-        Buffer.from(signature, 'hex'),
-        Buffer.from(public_key, 'hex')
-      );
+          // @ts-ignore
+          const verfied = secp256k1.verify(
+            hash,
+            Buffer.from(signature, 'hex'),
+            Buffer.from(public_key, 'hex')
+          );
 
-      if (!verfied) {
-        return res.status(403).send(makeResponse('not authorized'));
+          if (!verfied) {
+            return res.status(403).send(makeResponse('not authorized'));
+          }
+        } else {
+          return res.status(403).send(makeResponse('not authorized'));
+        }
       }
 
       const createAt = new Date(timestamp);
@@ -319,7 +340,19 @@ export class SubdomainManager {
 
       const subs = await this.getSubdomainByTLD(tld);
       await this.indexer.insertPost(tld, env, [{ name: '', tld, public_key: '' }, ...subs]);
-      return res.send(makeResponse(env));
+
+      const domainEnv = await mapWireToEnvelope(tld, subdomain, env) as DomainEnvelope<DomainModeration>;
+
+      return res.send(makeResponse({
+        id: domainEnv.id,
+        network_id: domainEnv.networkId,
+        refhash: domainEnv.refhash,
+        username: domainEnv.subdomain,
+        tld: domainEnv.tld,
+        timestamp: domainEnv.createdAt.getTime(),
+        reference: domainEnv.message.reference,
+        type: domainEnv.message.type,
+      }));
     } catch (e) {
       res.status(500).send(makeResponse(e.message, true));
     }
@@ -334,7 +367,12 @@ export class SubdomainManager {
       sig,
     } = req.body;
 
-    const { tld, subdomain, signature } = sig || {};
+    const sessionToken = req.headers['x-api-token'];
+    const sessionName = await verifySessionKey(sessionToken);
+    const { tld: sessionTLD, subdomain: sessionSubdomain } = parseUsername(sessionName);
+    const { tld: signedTLD, subdomain: signedSubdomain, signature } = sig || {};
+    const tld = signedTLD || sessionTLD;
+    const subdomain = signedSubdomain || sessionSubdomain;
     const conn: ConnectionBody = {
       tld: connectee_tld,
       subdomain: connectee_subdomain || '',
@@ -349,21 +387,27 @@ export class SubdomainManager {
         return res.status(403).send(makeResponse('cannot find subdomain'));
       }
 
-      if (!timestamp || !connectee_tld) {
+      if (!connectee_tld) {
         return res.status(400).send(makeResponse('invalid request'));
       }
 
-      const hash = hashConnectionBody(conn, new Date(timestamp));
+      if (!sessionName) {
+        if (signature && public_key) {
+          const hash = hashConnectionBody(conn, new Date(timestamp));
 
-      // @ts-ignore
-      const verfied = secp256k1.verify(
-        hash,
-        Buffer.from(signature, 'hex'),
-        Buffer.from(public_key, 'hex')
-      );
+          // @ts-ignore
+          const verfied = secp256k1.verify(
+            hash,
+            Buffer.from(signature, 'hex'),
+            Buffer.from(public_key, 'hex')
+          );
 
-      if (!verfied) {
-        return res.status(403).send(makeResponse('not authorized'));
+          if (!verfied) {
+            return res.status(403).send(makeResponse('not authorized'));
+          }
+        } else {
+          return res.status(403).send(makeResponse('not authorized'));
+        }
       }
 
       const createAt = new Date(timestamp);
@@ -379,7 +423,19 @@ export class SubdomainManager {
 
       const subs = await this.getSubdomainByTLD(tld);
       await this.indexer.insertPost(tld, env, [{ name: '', tld, public_key: '' }, ...subs]);
-      return res.send(makeResponse(env));
+      const domainEnv = await mapWireToEnvelope(tld, subdomain, env) as DomainEnvelope<DomainConnection>;
+
+      return res.send(makeResponse({
+        id: domainEnv.id,
+        network_id: domainEnv.networkId,
+        refhash: domainEnv.refhash,
+        username: domainEnv.subdomain,
+        tld: domainEnv.tld,
+        timestamp: domainEnv.createdAt.getTime(),
+        connectee_tld: domainEnv.message.tld,
+        connectee_subdomain: domainEnv.message.subdomain,
+        type: domainEnv.message.type,
+      }));
     } catch (e) {
       res.status(500).send(makeResponse(e.message, true));
     }
@@ -390,14 +446,24 @@ export class SubdomainManager {
       timestamp,
       filename,
       mimeType,
-      tld,
-      subdomain,
+      tld: signedTLD,
+      subdomain: signedSubdomain,
       signature,
     } = req.body;
+
+    const sessionToken = req.headers['x-api-token'];
+    const sessionName = await verifySessionKey(sessionToken);
+    const { tld: sessionTLD, subdomain: sessionSubdomain } = parseUsername(sessionName);
+    const tld = signedTLD || sessionTLD;
+    const subdomain = signedSubdomain || sessionSubdomain;
 
     // @ts-ignore
     const files = req.files || {};
     const file = files.file;
+
+    if (!file) {
+      return res.status(400).send(makeResponse('invalid request'));
+    }
 
     const mediaBody: MediaBody = {
       filename: filename,
@@ -413,21 +479,23 @@ export class SubdomainManager {
         return res.status(403).send(makeResponse('cannot find subdomain'));
       }
 
-      if (!timestamp) {
-        return res.status(400).send(makeResponse('invalid request'));
-      }
+      if (!sessionName) {
+        if (signature && public_key) {
+          const hash = hashMediaBody(mediaBody, new Date(timestamp));
 
-      const hash = hashMediaBody(mediaBody, new Date(timestamp));
+          // @ts-ignore
+          const verfied = secp256k1.verify(
+            hash,
+            Buffer.from(signature, 'hex'),
+            Buffer.from(public_key, 'hex')
+          );
 
-      // @ts-ignore
-      const verfied = secp256k1.verify(
-        hash,
-        Buffer.from(signature, 'hex'),
-        Buffer.from(public_key, 'hex')
-      );
-
-      if (!verfied) {
-        return res.status(403).send(makeResponse('not authorized'));
+          if (!verfied) {
+            return res.status(403).send(makeResponse('not authorized'));
+          }
+        } else {
+          return res.status(403).send(makeResponse('not authorized'));
+        }
       }
 
       const createAt = new Date(timestamp);
@@ -443,14 +511,18 @@ export class SubdomainManager {
       //
       const subs = await this.getSubdomainByTLD(tld);
       await this.indexer.insertPost(tld, env, [{ name: '', tld, public_key: '' }, ...subs]);
+
+      const domainEnv = await mapWireToEnvelope(tld, subdomain, env) as DomainEnvelope<DomainMedia>;
+
       return res.send(makeResponse({
-        ...env,
-        message: {
-          ...env.message,
-          subtype: env.message.subtype.toString('utf-8'),
-          type: env.message.type.toString('utf-8'),
-          content: undefined,
-        }
+        id: domainEnv.id,
+        network_id: domainEnv.networkId,
+        refhash: domainEnv.refhash,
+        username: domainEnv.subdomain,
+        tld: domainEnv.tld,
+        timestamp: domainEnv.createdAt.getTime(),
+        filename: domainEnv.message.filename,
+        mimeType: domainEnv.message.mimeType,
       }));
     } catch (e) {
       res.status(500).send(makeResponse(e.message, true));
