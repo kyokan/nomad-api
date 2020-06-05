@@ -30,6 +30,23 @@ export class Writer {
     this.subdomains = opts.subdomains;
   }
 
+  async reconstructSubdomainSectors(tld: string, date?: Date, broadcast?: boolean): Promise<void> {
+    // @ts-ignore
+    const tldData = config.signers[tld];
+
+    if (!tldData || !tldData.privateKey) throw new Error(`cannot find singer for ${tld}`);
+
+    const createdAt = date || new Date();
+    const subs = await this.subdomains.getSubdomainByTLD(tld);
+    await this.writeAt(tld, 0, Buffer.from(SUBDOMAIN_MAGIC, 'utf-8'));
+
+    let offset = 3;
+    for (let j = 0; j < subs.length; j++) {
+      const shouldBroadcast = broadcast && (subs.length - 1 === j);
+      offset = await this.commitSubdomain(tld, subs[j], j + 1, createdAt, offset, shouldBroadcast);
+    }
+  }
+
   async reconstructBlob(tld: string, envelope?: Envelope, date?: Date, broadcast?: boolean): Promise<void> {
     // @ts-ignore
     const tldData = config.signers[tld];
@@ -43,11 +60,7 @@ export class Writer {
 
     await this.truncateBlob(tld, createdAt);
 
-    await this.writeAt(tld, 0, Buffer.from(SUBDOMAIN_MAGIC, 'utf-8'));
-
-    for (let j = 0; j < subs.length; j++) {
-      await this.commitSubdomain(tld, subs[j], j + 1, createdAt);
-    }
+    await this.reconstructSubdomainSectors(tld, createdAt, false);
 
     let offset = 64 * 1024;
 
@@ -68,7 +81,7 @@ export class Writer {
     }
   }
 
-  async commitSubdomain(tld: string, sub: SubdomainDBRow, nameIndex = 0, date: Date): Promise<void> {
+  async commitSubdomain(tld: string, sub: SubdomainDBRow, nameIndex = 0, date: Date, offset = 3, broadcast?: boolean): Promise<number> {
     // @ts-ignore
     const tldData = config.signers[tld];
 
@@ -76,15 +89,16 @@ export class Writer {
     const signer = SECP256k1Signer.fromHexPrivateKey(tldData.privateKey);
 
     const txId = await this.client.checkout(tld);
-    const writer = new BlobWriter(this.client, txId, 3);
-    await encodeSubdomainAsync(writer, {
+    const writer = new BlobWriter(this.client, txId, offset);
+    const num = await encodeSubdomainAsync(writer, {
       name: sub.name,
       index: nameIndex,
       publicKey: Buffer.from(sub.public_key, 'hex'),
     });
     const merkleRoot = await this.client.preCommit(txId);
     const sig = sealAndSign(signer, tld, date, merkleRoot);
-    await this.client.commit(txId, date, sig, false);
+    await this.client.commit(txId, date, sig, broadcast);
+    return num + offset;
   }
 
   async truncateBlob(tld: string, date?: Date, broadcast?: boolean): Promise<void> {

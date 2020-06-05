@@ -1,3 +1,4 @@
+// @ts-ignore
 import blake2b from 'blake2b';
 import {Envelope as WireEnvelope} from "ddrp-js/dist/social/Envelope";
 import {Post as WirePost} from "ddrp-js/dist/social/Post";
@@ -163,9 +164,9 @@ export async function mapBodyToEnvelope(tld: string, params: WriterEnvelopeParam
       new DomainPost(
         0,
         post.body,
-        post.title,
-        post.reference,
-        post.topic,
+        post.title || null,
+        post.reference || null,
+        post.topic || null,
         post.tags,
         0,
         0,
@@ -183,7 +184,7 @@ export async function mapBodyToEnvelope(tld: string, params: WriterEnvelopeParam
       new DomainConnection(
         0,
         connection.tld,
-        connection.subdomain,
+        connection.subdomain || null,
         connection.type,
       ),
     );
@@ -248,9 +249,9 @@ export async function createEnvelope(tld: string, params: WriterEnvelopeParams):
       new DomainPost(
         0,
         post.body,
-        post.title,
-        post.reference,
-        post.topic,
+        post.title || null,
+        post.reference || null,
+        post.topic || null,
         post.tags,
         0,
         0,
@@ -271,7 +272,7 @@ export async function createEnvelope(tld: string, params: WriterEnvelopeParams):
       new DomainConnection(
         0,
         connection.tld,
-        connection.subdomain,
+        connection.subdomain || null,
         connection.type,
       ),
       null,
@@ -316,15 +317,33 @@ export async function createEnvelope(tld: string, params: WriterEnvelopeParams):
   return envelope!.toWire(nameIndex);
 }
 
-export function hashPostBody(post: PostBody): Buffer {
+export function hashPostBody(post: PostBody, date: Date): Buffer {
   const h = blake2b(32);
   h.update(Buffer.from(post.title || '', 'utf-8'));
   h.update(Buffer.from(post.body || '', 'utf-8'));
   h.update(Buffer.from(post.reference || '', 'utf-8'));
   h.update(Buffer.from(post.topic || '', 'utf-8'));
+  h.update(Buffer.from(date.toISOString(), 'utf-8'));
   post.tags.forEach(tag => {
     h.update(Buffer.from(tag, 'utf-8'));
-  })
+  });
+  return Buffer.from(h.digest());
+}
+
+export function hashModerationBody(mod: ModerationBody, date: Date): Buffer {
+  const h = blake2b(32);
+  h.update(Buffer.from(mod.type, 'utf-8'));
+  h.update(Buffer.from(mod.reference || '', 'utf-8'));
+  h.update(Buffer.from(date.toISOString(), 'utf-8'));
+  return Buffer.from(h.digest());
+}
+
+export function hashConnectionBody(conn: ConnectionBody, date: Date): Buffer {
+  const h = blake2b(32);
+  h.update(Buffer.from(conn.type, 'utf-8'));
+  h.update(Buffer.from(conn.tld || '', 'utf-8'));
+  h.update(Buffer.from(conn.subdomain || '', 'utf-8'));
+  h.update(Buffer.from(date.toISOString(), 'utf-8'));
   return Buffer.from(h.digest());
 }
 

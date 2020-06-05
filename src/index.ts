@@ -21,7 +21,9 @@ let watchInterval: Timeout;
   const server = new RestServer();
   const ddrp = new DDRPManager();
   const indexer = new IndexerManager();
-  const subdomains = new SubdomainManager();
+  const subdomains = new SubdomainManager({
+    indexer,
+  });
   const writer = new Writer({
     indexer,
     subdomains,

@@ -801,6 +801,8 @@ export class IndexerManager {
       FROM connections c JOIN envelopes e ON c.envelope_id = e.id
       WHERE e.tld = @tld
     `, { tld, subdomain }, row => {
+      if (!row.connection_subdomain) return;
+
       envelopes.push(new DomainEnvelope<DomainConnection>(
         row.envelope_id,
         row.tld,
@@ -879,15 +881,15 @@ export class IndexerManager {
     const mods = await this.getUserModerations(username);
     const conns = await this.getUserConnections(username);
     const medias = await this.getUserMedia(username);
-
     envelopes = [
-      ...posts,
       ...mods,
       ...conns,
       ...medias,
+      ...posts,
     ].sort((a, b) => {
-      if (a.id > b.id) return 1;
-      return -1;
+      if (a.createdAt > b.createdAt) return 1;
+      if (a.createdAt < b.createdAt) return -1;
+      return 0;
     });
 
     return envelopes;
@@ -1303,7 +1305,7 @@ export class IndexerManager {
       // }
 
       const br = new BlobReader(tld, this.client);
-      const r = new BufferedReader(br, 4 * 1024 * 1024 - 5);
+      const r = new BufferedReader(br, 1024 * 1024);
       const isSubdomain = await this.isSubdomainBlob(r);
 
       if (isSubdomain) {
@@ -1396,7 +1398,6 @@ export class IndexerManager {
       }, 500);
 
       iterateAllEnvelopes(r, (err, env) => {
-        // console.log(env);
         if (timeout) clearTimeout(timeout);
 
         if (err) {
@@ -1471,8 +1472,8 @@ export class IndexerManager {
 
     // const tlds = Object.keys(TLD_CACHE);
     const tlds = ['9325']
-    for (let i = 0; i < tlds.length; i = i + 19) {
-      const selectedTLDs = tlds.slice(i, i + 19).filter(tld => !!tld);
+    for (let i = 0; i < tlds.length; i = i + 1) {
+      const selectedTLDs = tlds.slice(i, i + 1).filter(tld => !!tld);
       await this.streamNBlobs(selectedTLDs);
     }
 

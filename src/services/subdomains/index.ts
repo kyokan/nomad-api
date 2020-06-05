@@ -9,12 +9,12 @@ import config from "../../../config.json";
 const jsonParser = bodyParser.json();
 const appDataPath = './build';
 const namedbPath = path.join(appDataPath, 'names.db');
-import {createRefhash} from 'ddrp-js/dist/social/refhash';
-import {PostBody} from "../../constants";
+import {ConnectionBody, PostBody} from "../../constants";
 import {Writer} from "../writer";
-import {hashPostBody, mapBodyToEnvelope} from "../../util/envelope";
+import {hashConnectionBody, hashModerationBody, hashPostBody, mapBodyToEnvelope} from "../../util/envelope";
 // @ts-ignore
 import secp256k1 from 'secp256k1';
+import {IndexerManager} from "../indexer";
 
 export type SubdomainDBRow = {
   name: string;
@@ -28,11 +28,19 @@ export class SubdomainManager {
   namedbPath: string;
   resourcePath: string;
   writer?: Writer;
+  indexer: IndexerManager;
 
-  constructor(opts?: { dbPath?: string; namedbPath?: string; resourcePath?: string; pendingDbPath?: string }) {
-    this.nameDB = new SqliteEngine(opts?.namedbPath || namedbPath);
-    this.namedbPath = opts?.namedbPath || namedbPath;
-    this.resourcePath = opts?.resourcePath || 'resources';
+  constructor(opts: {
+    dbPath?: string;
+    namedbPath?: string;
+    resourcePath?: string;
+    pendingDbPath?: string;
+    indexer: IndexerManager;
+  }) {
+    this.nameDB = new SqliteEngine(opts.namedbPath || namedbPath);
+    this.namedbPath = opts.namedbPath || namedbPath;
+    this.resourcePath = opts.resourcePath || 'resources';
+    this.indexer = opts.indexer;
   }
 
   async start () {
@@ -64,7 +72,7 @@ export class SubdomainManager {
     await fs.promises.copyFile(nameSrc, this.namedbPath);
   }
 
-  async addSubdomainPost(subdomain: string, tld: string, post: PostBody, date?: Date) {
+  async addSubdomainPost(subdomain: string, tld: string, post: PostBody, date?: Date, broadcast?: boolean) {
     const subs = await this.getSubdomainByTLD(tld);
     const nameIndex = subs.map(({ name }) => name).indexOf(subdomain) + 1;
 
@@ -75,15 +83,13 @@ export class SubdomainManager {
 
     if (!env) throw new Error('invalid post');
 
-    return this.writer?.appendEnvelope(tld, env, date);
+    return this.writer?.appendEnvelope(tld, env, date, broadcast);
   }
 
   async getNameIndex(subdomain: string | null, tld: string): Promise<number> {
     if (!subdomain) return 0;
     const subs = await this.getSubdomainByTLD(tld);
-    const nameIndex = subs.map(({ name }) => name).indexOf(subdomain) + 1;
-    console.log(nameIndex, subdomain, tld)
-    return nameIndex;
+    return subs.map(({ name }) => name).indexOf(subdomain) + 1;
   }
 
   async getSubdomainByTLD(tld: string): Promise<SubdomainDBRow[]> {
@@ -130,16 +136,20 @@ export class SubdomainManager {
       publicKey,
       email,
     });
+
+    this.writer?.reconstructSubdomainSectors(tld, new Date(), true);
   }
 
   handleSubdomainPost = async (req: Request, res: Response) => {
     const {
       tags = [],
-      title,
+      title = null,
       body,
-      topic,
-      reference,
+      topic = null,
+      reference = null,
       sig,
+      timestamp,
+      broadcast,
     } = req.body;
 
     const { tld, subdomain, signature } = sig || {};
@@ -151,25 +161,179 @@ export class SubdomainManager {
       reference,
     };
 
-    const { public_key = '' } = this.getSubdomain(tld, subdomain) || {};
-    const hash = hashPostBody(post);
+    try {
+      const { public_key = '' } = this.getSubdomain(tld, subdomain) || {};
+      const nameIndex = await this.getNameIndex(subdomain, tld);
 
-    const verfied = secp256k1.verify(
-      hash,
-      Buffer.from(signature, 'hex'),
-      Buffer.from(public_key, 'hex')
-    );
+      if (!nameIndex) {
+        return res.status(403).send(makeResponse('cannot find subdomain'));
+      }
 
-    if (!verfied) {
-      return res.status(403).send(makeResponse('not authorized'));
+      if (!timestamp || !body) {
+        return res.status(400).send(makeResponse('invalid reqest'));
+      }
+
+      const hash = hashPostBody(post, new Date(timestamp));
+
+
+      // @ts-ignore
+      const verfied = secp256k1.verify(
+        hash,
+        Buffer.from(signature, 'hex'),
+        Buffer.from(public_key, 'hex')
+      );
+
+      if (!verfied) {
+        return res.status(403).send(makeResponse('not authorized'));
+      }
+
+      const createAt = new Date(timestamp);
+      const env = await mapBodyToEnvelope(tld, {
+        post: {
+          tags,
+          title,
+          body,
+          topic,
+          reference,
+        },
+        createAt,
+        nameIndex,
+      });
+
+      if (!env) {
+        return res.status(403).send(makeResponse('invalid post'));
+      }
+
+      const subs = await this.getSubdomainByTLD(tld);
+      await this.indexer.insertPost(tld, env, ['', ...subs.map(s => s.name)]);
+      return res.send(makeResponse(env));
+    } catch (e) {
+      res.status(500).send(makeResponse(e.message, true));
     }
+  };
 
-    await this.addSubdomainPost(subdomain, tld, post);
-    return res.send('ok');
+  handleSubdomainModeration = async (req: Request, res: Response) => {
+    const {
+      type = 'LIKE',
+      reference,
+      timestamp,
+      sig,
+    } = req.body;
+
+    const { tld, subdomain, signature } = sig || {};
+    const mod = { type, reference };
+
+    try {
+      const { public_key = '' } = this.getSubdomain(tld, subdomain) || {};
+      const nameIndex = await this.getNameIndex(subdomain, tld);
+
+      if (!nameIndex) {
+        return res.status(403).send(makeResponse('cannot find subdomain'));
+      }
+
+      if (!timestamp || !reference) {
+        return res.status(400).send(makeResponse('invalid reqest'));
+      }
+
+      const hash = hashModerationBody(mod, new Date(timestamp));
+
+      // @ts-ignore
+      const verfied = secp256k1.verify(
+        hash,
+        Buffer.from(signature, 'hex'),
+        Buffer.from(public_key, 'hex')
+      );
+
+      if (!verfied) {
+        return res.status(403).send(makeResponse('not authorized'));
+      }
+
+      const createAt = new Date(timestamp);
+      const env = await mapBodyToEnvelope(tld, {
+        moderation: {
+          type,
+          reference,
+        },
+        createAt,
+        nameIndex,
+      });
+
+      if (!env) {
+        return res.status(403).send(makeResponse('invalid post'));
+      }
+
+      const subs = await this.getSubdomainByTLD(tld);
+      await this.indexer.insertPost(tld, env, ['', ...subs.map(s => s.name)]);
+      return res.send(makeResponse(env));
+    } catch (e) {
+      res.status(500).send(makeResponse(e.message, true));
+    }
+  };
+
+  handleSubdomainConnections = async (req: Request, res: Response) => {
+    const {
+      connectee_tld,
+      connectee_subdomain,
+      type,
+      timestamp,
+      sig,
+    } = req.body;
+
+    const { tld, subdomain, signature } = sig || {};
+    const conn: ConnectionBody = {
+      tld: connectee_tld,
+      subdomain: connectee_subdomain || '',
+      type: type || 'FOLLOW',
+    };
+
+    try {
+      const { public_key = '' } = this.getSubdomain(tld, subdomain) || {};
+      const nameIndex = await this.getNameIndex(subdomain, tld);
+
+      if (!nameIndex) {
+        return res.status(403).send(makeResponse('cannot find subdomain'));
+      }
+
+      if (!timestamp || !connectee_tld) {
+        return res.status(400).send(makeResponse('invalid request'));
+      }
+
+      const hash = hashConnectionBody(conn, new Date(timestamp));
+
+      // @ts-ignore
+      const verfied = secp256k1.verify(
+        hash,
+        Buffer.from(signature, 'hex'),
+        Buffer.from(public_key, 'hex')
+      );
+
+      if (!verfied) {
+        return res.status(403).send(makeResponse('not authorized'));
+      }
+
+      const createAt = new Date(timestamp);
+      const env = await mapBodyToEnvelope(tld, {
+        connection: conn,
+        createAt,
+        nameIndex,
+      });
+
+      if (!env) {
+        return res.status(403).send(makeResponse('invalid post'));
+      }
+
+      const subs = await this.getSubdomainByTLD(tld);
+      await this.indexer.insertPost(tld, env, ['', ...subs.map(s => s.name)]);
+      return res.send(makeResponse(env));
+    } catch (e) {
+      res.status(500).send(makeResponse(e.message, true));
+    }
   };
 
   setRoutes(app: Express) {
     app.post('/posts', jsonParser, this.handleSubdomainPost);
+    app.post('/moderations', jsonParser, this.handleSubdomainModeration);
+    app.post('/connections', jsonParser, this.handleSubdomainConnections);
 
     app.post('/users', jsonParser, async (req, res) => {
       const {
@@ -180,26 +344,28 @@ export class SubdomainManager {
       } = req.body;
 
       if (!username || typeof username !== 'string') {
-        return res.status(400).send(makeResponse('invalid username'));
+        return res.status(400).send(makeResponse('invalid username', true));
       }
 
-      if (!tld || typeof tld !== 'string') {
-        return res.status(400).send(makeResponse('invalid tld'));
+      // @ts-ignore
+      if (!config.signers[tld || '']) {
+        return res.status(400).send(makeResponse('invalid tld', true));
       }
 
-      if (!email || typeof email !== 'string') {
-        return res.status(400).send(makeResponse('invalid email'));
+      if (email && typeof email !== 'string') {
+        return res.status(400).send(makeResponse('invalid email', true));
       }
 
       if (!publicKey || typeof publicKey !== 'string' || Buffer.from(publicKey, 'hex').length !== 33) {
-        return res.status(400).send(makeResponse('invalid public key'));
+        return res.status(400).send(makeResponse('invalid public key', true));
       }
+
 
       try {
         await this.addSubdomain(tld, username, email, publicKey);
-        res.send('ok');
+        res.send(makeResponse('ok'));
       } catch (e) {
-        res.status(500).send(makeResponse(e.message));
+        res.status(500).send(makeResponse(e.message, true));
       }
     });
   }

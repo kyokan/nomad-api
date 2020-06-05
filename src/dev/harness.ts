@@ -1,6 +1,9 @@
 import {RestServerResponse} from "../util/rest";
 import SECP256k1Signer from 'ddrp-js/dist/crypto/signer'
-import {create} from "domain";
+import secp256k1 from "secp256k1";
+import {generateNewCompressedKey} from "../util/key";
+import {hashConnectionBody, hashModerationBody, hashPostBody} from "../util/envelope";
+import {ConnectionBody, ModerationBody} from "../constants";
 healthCheck();
 
 
@@ -21,64 +24,75 @@ healthCheck();
   await getPostsCheck('/tags?tags=bug');
   await getUserProfileCheck('/users/9325/profile');
 
-  const offsetResp = await fetch('/blob/9325/info');
-  const offsetJson = await offsetResp.json();
-  const offset = offsetJson.payload.nextOffset;
+  // const offsetResp = await fetch('/blob/9325/info');
+  // const offsetJson = await offsetResp.json();
+  // const offset = offsetJson.payload.nextOffset;
 
-  const createdAt = Math.floor(Date.now()/1000) * 1000;
-  const params = {
-    "tld": "9325",
-    "post": {
-      "body": "hello, world 8",
-      "title": null,
-      "reference": null,
-      "topic": null,
-      "tags": ["test"]
-    },
-    date: createdAt,
-    offset,
-  };
+  // const createdAt = Math.floor(Date.now()/1000) * 1000;
+  // const params = {
+  //   "tld": "9325",
+  //   "post": {
+  //     "body": "hello, world 8",
+  //     "title": null,
+  //     "reference": null,
+  //     "topic": null,
+  //     "tags": ["test"]
+  //   },
+  //   date: createdAt,
+  //   offset,
+  // };
 
-  const json = await precommit(params);
-  console.log('precommit', json.payload);
+  // const json = await precommit(params);
+  // console.log('precommit', json.payload);
 
-  const fixedParams = {
-    ...params,
-    networkId: json.payload.envelope.id,
-    refhash: json.payload.refhash,
-    date: createdAt,
-  };
+  // const fixedParams = {
+  //   ...params,
+  //   networkId: json.payload.envelope.id,
+  //   refhash: json.payload.refhash,
+  //   date: createdAt,
+  // };
 
   // const json2 = await precommit(fixedParams);
   // console.log('precommit2', json2.payload);
 
-  // const signer = SECP256k1Signer.fromHexPrivateKey(
-  //   'xxx'
-  // );
-  //
-  // console.log(signer.sign(Buffer.from('0e5751c026e543b2e8ab2eb06099daa1d1e5df47778f7787faab45cdf12fe3a8', 'hex')).toString('hex'))
 
-  // const sig = signer.sign(Buffer.from(json.payload.sealedHash, 'hex'));
-  //
-  // await wait(500);
-  //
-  // console.log(sig.toString('hex'))
-  //
-  // const resp2 = await fetch(`/writer/commit`, {
-  //   method: 'POST',
-  //   headers: {
-  //     'Content-Type': 'application/json',
-  //   },
-  //   body: JSON.stringify({
-  //     ...fixedParams,
-  //     sealedHash: json.payload.sealedHash,
-  //     sig: sig.toString('hex'),
-  //   }),
-  // });
-  //
-  // const json2 = await resp2.json();
-  // console.log(json2);
+  console.log(await connect('2062', '06032020'));
+
 })();
+
+async function connect(tld: string, subdomain: string) {
+  const postBody: ConnectionBody = {
+    "connectee_tld": tld,
+    "connectee_subdomain": subdomain,
+    "tld": tld,
+    "subdomain": subdomain,
+    "type": 'FOLLOW',
+  };
+  const timestamp = Date.now();
+  const hash = hashConnectionBody(postBody, new Date(timestamp));
+  // @ts-ignore
+  const {signature} = secp256k1.sign(
+    hash,
+    Buffer.from('1ad287a8a4189e239261299c46aceeb3e684a2ae4222bd2c8ea855d75b06131a', 'hex')
+  );
+
+  const resp = await fetch('/connections', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      ...postBody,
+      timestamp,
+      sig: {
+        tld: '9325',
+        subdomain: 'ibchilling',
+        signature: signature.toString('hex'),
+      },
+    }),
+  });
+  return await resp.json();
+}
 
 async function precommit(params: any) {
   const resp = await fetch(`/relayer/precommit`, {

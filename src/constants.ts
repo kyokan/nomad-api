@@ -17,9 +17,9 @@ export type UserProfile = {
 }
 export type PostBody = {
   body: string;
-  title: string | null;
-  reference: string | null;
-  topic: string | null;
+  title?: string | null;
+  reference?: string | null;
+  topic?: string | null;
   tags: string[];
 }
 export type ConnectionBody = {
