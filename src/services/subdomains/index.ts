@@ -154,7 +154,7 @@ export class SubdomainManager {
     `, {
       tld,
       subdomain,
-      publicKey,
+      publicKey: publicKey || '',
       email,
       password,
     });
@@ -565,14 +565,16 @@ export class SubdomainManager {
 
     app.post('/subdomains/signup', jsonParser, async (req, res) => {
       const {
-        username,
+        subdomain,
         tld,
         email,
         publicKey,
         password,
       } = req.body;
 
-      if (!username || typeof username !== 'string') {
+      console.log(req.body);
+
+      if (!subdomain || typeof subdomain !== 'string') {
         return res.status(400).send(makeResponse('invalid username', true));
       }
 
@@ -589,14 +591,23 @@ export class SubdomainManager {
         return res.status(400).send(makeResponse('invalid password', true));
       }
 
-      if (!publicKey || typeof publicKey !== 'string' || Buffer.from(publicKey, 'hex').length !== 33) {
+      if (typeof publicKey === 'string' && Buffer.from(publicKey, 'hex').length !== 33) {
         return res.status(400).send(makeResponse('invalid public key', true));
       }
 
 
       try {
-        await this.addSubdomain(tld, username, email, publicKey, password);
-        res.send(makeResponse('ok'));
+        const hashedPw = hashString(password);
+        console.log({ hashedPw, publicKey })
+        await this.addSubdomain(tld, subdomain, email, publicKey, hashedPw);
+        res.send(makeResponse({
+          subdomain,
+          tld,
+          email,
+          public_key: publicKey,
+          created_at: new Date().getTime(),
+          updated_at: new Date().getTime(),
+        }));
       } catch (e) {
         res.status(500).send(makeResponse(e.message, true));
       }
