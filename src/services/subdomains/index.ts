@@ -9,6 +9,8 @@ import config from "../../../config.json";
 const jsonParser = bodyParser.json();
 const appDataPath = './build';
 const namedbPath = path.join(appDataPath, 'names.db');
+import {Envelope as DomainEnvelope} from 'ddrp-indexer/dist/domain/Envelope';
+import {Post as DomainPost} from 'ddrp-indexer/dist/domain/Post';
 
 import {ConnectionBody, MediaBody, PostBody} from "../../constants";
 import {Writer} from "../writer";
@@ -17,7 +19,7 @@ import {
   hashMediaBody,
   hashModerationBody,
   hashPostBody,
-  mapBodyToEnvelope
+  mapBodyToEnvelope, mapWireToEnvelope
 } from "../../util/envelope";
 // @ts-ignore
 import secp256k1 from 'secp256k1';
@@ -183,7 +185,7 @@ export class SubdomainManager {
     const sessionName = await verifySessionKey(sessionToken);
     const { tld: sessionTLD, subdomain: sessionSubdomain } = parseUsername(sessionName);
     const { tld: signedTLD, subdomain: signedSubdomain, signature } = sig || {};
-    const post = {
+    const post: PostBody = {
       tags,
       title,
       body,
@@ -245,7 +247,21 @@ export class SubdomainManager {
 
       const subs = await this.getSubdomainByTLD(tld);
       await this.indexer.insertPost(tld, env, [{ name: '', tld, public_key: '' }, ...subs]);
-      return res.send(makeResponse(env));
+
+      const mappedPost = await mapWireToEnvelope(tld, subdomain, env) as DomainEnvelope<DomainPost>;
+      return res.send(makeResponse({
+        id: mappedPost.id,
+        network_id: mappedPost.networkId,
+        refhash: mappedPost.refhash,
+        username: mappedPost.subdomain,
+        tld: mappedPost.tld,
+        timestamp: mappedPost.createdAt.getTime(),
+        title: mappedPost.message.title,
+        reference: mappedPost.message.reference,
+        body: mappedPost.message.body,
+        topic: mappedPost.message.topic,
+        tags: mappedPost.message.tags,
+      }));
     } catch (e) {
       res.status(500).send(makeResponse(e.message, true));
     }
@@ -454,10 +470,10 @@ export class SubdomainManager {
       const hashedPw = hashString(password);
 
       if (hashedPw !== userPw) {
-        return res.status(403).send(makeResponse('not authorized'));
+        return res.status(403).send(makeResponse('not authorized', true));
       }
 
-      const expiry = Date.now() + (60 * 60 * 24);
+      const expiry = Date.now() + (1000 * 60 * 60 * 24);
       const sessionKey = await createSessionKey(username, expiry);
       res.send(makeResponse({
         token: sessionKey,
