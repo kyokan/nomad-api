@@ -901,13 +901,6 @@ export class IndexerManager {
 
     const envelopes: any = [];
 
-    if (subdomain) {
-      return {
-        items: envelopes,
-        next: -1,
-      };
-    }
-
     this.engine.each(`
       SELECT e.id as envelope_id, m.id as media, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
         m.filename, m.mime_type
@@ -1470,8 +1463,8 @@ export class IndexerManager {
   async streamAllBlobs(): Promise<void> {
     await this.streamBlobInfo();
 
-    // const tlds = Object.keys(TLD_CACHE);
-    const tlds = ['9325']
+    const tlds = Object.keys(TLD_CACHE);
+    // const tlds = ['9325']
     for (let i = 0; i < tlds.length; i = i + 1) {
       const selectedTLDs = tlds.slice(i, i + 1).filter(tld => !!tld);
       await this.streamNBlobs(selectedTLDs);

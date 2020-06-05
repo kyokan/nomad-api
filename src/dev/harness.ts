@@ -2,7 +2,7 @@ import {RestServerResponse} from "../util/rest";
 import SECP256k1Signer from 'ddrp-js/dist/crypto/signer'
 import secp256k1 from "secp256k1";
 import {generateNewCompressedKey} from "../util/key";
-import {hashConnectionBody, hashModerationBody, hashPostBody} from "../util/envelope";
+import {hashConnectionBody, hashMediaBody, hashModerationBody, hashPostBody} from "../util/envelope";
 import {ConnectionBody, ModerationBody} from "../constants";
 healthCheck();
 
@@ -55,9 +55,44 @@ healthCheck();
   // const json2 = await precommit(fixedParams);
   // console.log('precommit2', json2.payload);
 
+  const fileupload = document.getElementById("fileupload");
+  fileupload!.onchange = async (e) => {
+    const timestamp = Date.now();
+    const [file]: File[] = e?.target?.files || [];
+    const formData = new FormData();
+    formData.append('file', file);
+    const fileBuf = await file.arrayBuffer();
+    const buf = Buffer.from(fileBuf);
 
-  console.log(await connect('2062', '06032020'));
+    const hash = hashMediaBody({
+      filename: file.name,
+      mimeType: file.type,
+      content: buf.toString('hex'),
+    }, new Date(timestamp));
 
+
+    // @ts-ignore
+    const {signature} = secp256k1.sign(
+      hash,
+      Buffer.from('1ad287a8a4189e239261299c46aceeb3e684a2ae4222bd2c8ea855d75b06131a', 'hex')
+    );
+    formData.append('signature', signature.toString('hex'));
+    formData.append('tld', '9325');
+    formData.append('subdomain', 'ibchilling');
+    formData.append('filename', file.name);
+    formData.append('mimeType', file.type);
+    formData.append('timestamp', new Date(timestamp).toISOString());
+
+    const resp = await fetch('/medias', {
+      method: 'POST',
+      // headers: {
+      //   'Content-Type': 'application/json',
+      // },
+      body: formData,
+    });
+    const json = await resp.json();
+    console.log(json);
+  }
 })();
 
 async function connect(tld: string, subdomain: string) {

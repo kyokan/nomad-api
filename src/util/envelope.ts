@@ -347,3 +347,12 @@ export function hashConnectionBody(conn: ConnectionBody, date: Date): Buffer {
   return Buffer.from(h.digest());
 }
 
+export function hashMediaBody(media: MediaBody, date: Date): Buffer {
+  const h = blake2b(32);
+  h.update(Buffer.from(media.filename, 'utf-8'));
+  h.update(Buffer.from(media.mimeType || '', 'utf-8'));
+  h.update(Buffer.from(media.content || '', 'hex'));
+  h.update(Buffer.from(date.toISOString(), 'utf-8'));
+  return Buffer.from(h.digest());
+}
+

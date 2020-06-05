@@ -9,9 +9,15 @@ import config from "../../../config.json";
 const jsonParser = bodyParser.json();
 const appDataPath = './build';
 const namedbPath = path.join(appDataPath, 'names.db');
-import {ConnectionBody, PostBody} from "../../constants";
+import {ConnectionBody, MediaBody, PostBody} from "../../constants";
 import {Writer} from "../writer";
-import {hashConnectionBody, hashModerationBody, hashPostBody, mapBodyToEnvelope} from "../../util/envelope";
+import {
+  hashConnectionBody,
+  hashMediaBody,
+  hashModerationBody,
+  hashPostBody,
+  mapBodyToEnvelope
+} from "../../util/envelope";
 // @ts-ignore
 import secp256k1 from 'secp256k1';
 import {IndexerManager} from "../indexer";
@@ -330,10 +336,83 @@ export class SubdomainManager {
     }
   };
 
+  handleSubdomainMedias = async (req: Request, res: Response) => {
+    const {
+      timestamp,
+      filename,
+      mimeType,
+      tld,
+      subdomain,
+      signature,
+    } = req.body;
+
+    // @ts-ignore
+    const files = req.files || {};
+    const file = files.file;
+
+    const mediaBody: MediaBody = {
+      filename: filename,
+      mimeType,
+      content: file.data.toString('hex'),
+    };
+
+    try {
+      const { public_key = '' } = this.getSubdomain(tld, subdomain) || {};
+      const nameIndex = await this.getNameIndex(subdomain, tld);
+
+      if (!nameIndex) {
+        return res.status(403).send(makeResponse('cannot find subdomain'));
+      }
+
+      if (!timestamp) {
+        return res.status(400).send(makeResponse('invalid request'));
+      }
+
+      const hash = hashMediaBody(mediaBody, new Date(timestamp));
+
+      // @ts-ignore
+      const verfied = secp256k1.verify(
+        hash,
+        Buffer.from(signature, 'hex'),
+        Buffer.from(public_key, 'hex')
+      );
+
+      if (!verfied) {
+        return res.status(403).send(makeResponse('not authorized'));
+      }
+
+      const createAt = new Date(timestamp);
+      const env = await mapBodyToEnvelope(tld, {
+        media: mediaBody,
+        createAt,
+        nameIndex,
+      });
+
+      if (!env) {
+        return res.status(403).send(makeResponse('invalid post'));
+      }
+      //
+      const subs = await this.getSubdomainByTLD(tld);
+      await this.indexer.insertPost(tld, env, ['', ...subs.map(s => s.name)]);
+      return res.send(makeResponse({
+        ...env,
+        message: {
+          ...env.message,
+          subtype: env.message.subtype.toString('utf-8'),
+          type: env.message.type.toString('utf-8'),
+          content: undefined,
+        }
+      }));
+    } catch (e) {
+      res.status(500).send(makeResponse(e.message, true));
+    }
+  };
+
   setRoutes(app: Express) {
     app.post('/posts', jsonParser, this.handleSubdomainPost);
     app.post('/moderations', jsonParser, this.handleSubdomainModeration);
     app.post('/connections', jsonParser, this.handleSubdomainConnections);
+    app.post('/medias', jsonParser, this.handleSubdomainMedias);
 
     app.post('/users', jsonParser, async (req, res) => {
       const {
