@@ -15,6 +15,8 @@ import {trackAttempt} from "../../util/matomo";
 import config from "../../../config.json";
 import {SubdomainDBRow, SubdomainManager} from "../subdomains";
 import {createEnvelope, mapBodyToEnvelope} from "../../util/envelope";
+import {BufferedReader} from "ddrp-js/dist/io/BufferedReader";
+import {BlobReader} from "ddrp-js/dist/ddrp/BlobReader";
 
 const jsonParser = bodyParser.json();
 const SERVICE_KEY = process.env.SERVICE_KEY;
@@ -30,7 +32,7 @@ export class Writer {
     this.subdomains = opts.subdomains;
   }
 
-  async reconstructSubdomainSectors(tld: string, date?: Date, broadcast?: boolean): Promise<void> {
+  async reconstructSubdomainSectors(tld: string, date?: Date, broadcast?: boolean, oldSubs: SubdomainDBRow[] = []): Promise<void> {
     // @ts-ignore
     const tldData = config.signers[tld];
 
@@ -40,10 +42,19 @@ export class Writer {
     const subs = await this.subdomains.getSubdomainByTLD(tld);
     await this.writeAt(tld, 0, Buffer.from(SUBDOMAIN_MAGIC, 'utf-8'));
 
+    if (!subs.length) {
+      oldSubs.forEach((subdomain) => {
+        if (!subdomain.name) return;
+        this.subdomains.addSubdomain(tld, subdomain.name, '', subdomain.public_key || '', '');
+      });
+    }
+
+    const newSubs = subs.length ? subs : oldSubs;
+
     let offset = 3;
-    for (let j = 0; j < subs.length; j++) {
-      const shouldBroadcast = broadcast && (subs.length - 1 === j);
-      offset = await this.commitSubdomain(tld, subs[j], j + 1, createdAt, offset, shouldBroadcast);
+    for (let j = 0; j < newSubs.length; j++) {
+      const shouldBroadcast = broadcast && (newSubs.length - 1 === j);
+      offset = await this.commitSubdomain(tld, newSubs[j], j + 1, createdAt, offset, shouldBroadcast);
     }
   }
 
@@ -54,21 +65,30 @@ export class Writer {
     if (!tldData || !tldData.privateKey) throw new Error(`cannot find singer for ${tld}`);
 
     const envs = await this.indexer.getUserEnvelopes(tld);
-    const subs = await this.subdomains.getSubdomainByTLD(tld);
+    let oldSubs: SubdomainDBRow[] = [];
 
     const createdAt = date || new Date();
 
+    const br = new BlobReader(tld, this.client);
+    const r = new BufferedReader(br, 4 * 1024 * 1024 - 5);
+    const isSubdomain = await this.indexer.isSubdomainBlob(r);
+    if (isSubdomain) {
+      oldSubs = await this.indexer.scanSubdomainData(r, tld);
+    }
+
     await this.truncateBlob(tld, createdAt);
 
-    await this.reconstructSubdomainSectors(tld, createdAt, false);
+    await this.reconstructSubdomainSectors(tld, createdAt, false, oldSubs);
+
 
     let offset = 64 * 1024;
 
     for (let i = 0; i < envs.length; i++) {
       const shouldBroadcast = broadcast && !envelope && i === envs.length - 1;
+      const nameIndex = await this.subdomains.getNameIndex(envs[i]?.subdomain, tld);
       const endOffset = await this.appendEnvelope(
         tld,
-        envs[i].toWire(await this.subdomains.getNameIndex(envs[i]?.subdomain, tld)),
+        envs[i].toWire(nameIndex),
         envs[i].createdAt,
         shouldBroadcast,
         offset,
@@ -81,7 +101,8 @@ export class Writer {
     }
   }
 
-  async commitSubdomain(tld: string, sub: SubdomainDBRow, nameIndex = 0, date: Date, offset = 3, broadcast?: boolean): Promise<number> {
+  // @ts-ignore
+  async commitSubdomain(tld: string, sub?: SubdomainDBRow, nameIndex = 0, date: Date, offset = 3, broadcast?: boolean): Promise<number> {
     // @ts-ignore
     const tldData = config.signers[tld];
 
@@ -91,13 +112,14 @@ export class Writer {
     const txId = await this.client.checkout(tld);
     const writer = new BlobWriter(this.client, txId, offset);
     const num = await encodeSubdomainAsync(writer, {
-      name: sub.name,
+      name: sub?.name || '',
       index: nameIndex,
-      publicKey: Buffer.from(sub.public_key, 'hex'),
+      publicKey: sub?.public_key ? Buffer.from(sub.public_key || '', 'hex') : Buffer.alloc(33),
     });
     const merkleRoot = await this.client.preCommit(txId);
     const sig = sealAndSign(signer, tld, date, merkleRoot);
     await this.client.commit(txId, date, sig, broadcast);
+    logger.info(`append subdomain`, { tld, offset, subdomain: sub?.name });
     return num + offset;
   }
 
@@ -132,7 +154,7 @@ export class Writer {
     const merkleRoot = await this.client.preCommit(txId);
     const sig = sealAndSign(signer, tld, createdAt, merkleRoot);
     await this.client.commit(txId, createdAt, sig, broadcast);
-    logger.info(`append envelope`, { tld, offset, networkId: envelope.id });
+    logger.info(`append envelope`, { tld, nameIndex: envelope.nameIndex, offset, networkId: envelope.id });
     return offset + numOfBytes;
   }
 

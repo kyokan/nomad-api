@@ -45,6 +45,7 @@ const dbPath = path.join(appDataPath, 'nomad.db');
 const pendingDbPath = path.join(appDataPath, 'pending.db');
 import {mapWireToEnvelope} from "../../util/envelope";
 import crypto from 'crypto';
+import {SubdomainDBRow} from "../subdomains";
 
 const SPRITE_TO_SPRITES: {[sprite: string]: any} = {
   identicon: Identicon,
@@ -1031,11 +1032,11 @@ export class IndexerManager {
     });
   };
 
-  insertPost = async (tld: string, wire: WireEnvelope, subdomains: string[] = []): Promise<any> => {
+  insertPost = async (tld: string, wire: WireEnvelope, subdomains: SubdomainDBRow[] = []): Promise<any> => {
     const nameIndex = wire.nameIndex;
-    const subdomain = subdomains[nameIndex] || '';
+    const subdomain = subdomains[nameIndex];
 
-    if (nameIndex > 0 && subdomains.length && !subdomain) {
+    if (nameIndex > 0 && !subdomain) {
       logger.error(`cannot find subdomain`, {
         networkd_id: wire.id,
         tld: tld,
@@ -1047,12 +1048,12 @@ export class IndexerManager {
     logger.info(`inserting message`, {
       networkd_id: wire.id,
       tld: tld,
-      subdomain: subdomain,
+      subdomain: subdomain?.name || '',
     });
 
     try {
       const message = wire.message;
-      const domainEnvelope = await mapWireToEnvelope(tld, subdomain, wire);
+      const domainEnvelope = await mapWireToEnvelope(tld, subdomain?.name || '', wire);
 
       switch (message.type.toString('utf-8')) {
         case Post.TYPE.toString('utf-8'):
@@ -1069,7 +1070,7 @@ export class IndexerManager {
           return;
       }
     } catch (err) {
-      logger.error(`cannot insert message ${serializeUsername(subdomain, tld)}/${wire.id}`);
+      logger.error(`cannot insert message ${serializeUsername(subdomain?.name, tld)}/${wire.id}`);
       logger.error(err?.message);
     }
   };
@@ -1316,7 +1317,7 @@ export class IndexerManager {
     }
   };
 
-  private isSubdomainBlob = (r: BufferedReader): Promise<boolean> => {
+  isSubdomainBlob = (r: BufferedReader): Promise<boolean> => {
     let timeout: any | undefined;
     return new Promise((resolve, reject) => {
       timeout = setTimeout(() => resolve(false), 5000);
@@ -1340,9 +1341,12 @@ export class IndexerManager {
     });
   };
 
-  private scanSubdomainData = (r: BufferedReader, tld: string): Promise<string[]> => {
+  scanSubdomainData = (r: BufferedReader, tld: string): Promise<SubdomainDBRow[]> => {
     let timeout: any | undefined;
-    const subdomains: string[] = [];
+    const subdomains: SubdomainDBRow[] = [{
+      name: '',
+      tld,
+    }];
     return new Promise((resolve, reject) => {
       logger.info(`scan subdomain data`, { tld });
       timeout = setTimeout(() => {
@@ -1363,16 +1367,15 @@ export class IndexerManager {
           return false;
         }
 
-        logger.info(`scanned subdomain data`, { name: sub.name, index: sub.index });
+        logger.info(`scanned subdomain data`, { name: sub?.name, index: sub?.index });
 
-        // this.insertOrUpdateSubdomain(
-        //   sub.index,
-        //   tld,
-        //   sub.publicKey.toString('hex'),
-        //   sub.name,
-        // );
 
-        subdomains[sub.index] = sub.name;
+        subdomains.push({
+          name: sub?.name || '',
+          tld,
+          public_key: sub?.publicKey?.toString('hex'),
+          email: '',
+        });
 
         timeout = setTimeout(() => resolve(subdomains), 500);
         return true;
@@ -1380,7 +1383,7 @@ export class IndexerManager {
     });
   };
 
-  private scanBlobData = (r: BufferedReader, tld: string, subdomains: string[]) => {
+  private scanBlobData = (r: BufferedReader, tld: string, subdomains: SubdomainDBRow[]) => {
     let timeout: any | undefined;
 
     return new Promise((resolve, reject) => {
@@ -1463,8 +1466,8 @@ export class IndexerManager {
   async streamAllBlobs(): Promise<void> {
     await this.streamBlobInfo();
 
-    const tlds = Object.keys(TLD_CACHE);
-    // const tlds = ['9325']
+    // const tlds = Object.keys(TLD_CACHE);
+    const tlds = ['9325']
     for (let i = 0; i < tlds.length; i = i + 1) {
       const selectedTLDs = tlds.slice(i, i + 1).filter(tld => !!tld);
       await this.streamNBlobs(selectedTLDs);
