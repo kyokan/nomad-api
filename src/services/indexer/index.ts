@@ -1,3 +1,4 @@
+import PostgresClient from "../../db/PostgresClient";
 import DDRPDClient from "ddrp-js/dist/ddrp/DDRPDClient";
 import {BufferedReader} from "ddrp-js/dist/io/BufferedReader";
 import {BlobReader} from "ddrp-js/dist/ddrp/BlobReader";
@@ -79,6 +80,7 @@ export class IndexerManager {
   client: DDRPDClient;
   engine: SqliteEngine;
   pendingDB: SqliteEngine;
+  pgClient: PostgresClient;
   dbPath: string;
   pendingDbPath: string;
   resourcePath: string;
@@ -86,6 +88,13 @@ export class IndexerManager {
   constructor(opts?: { dbPath?: string; namedbPath?: string; resourcePath?: string; pendingDbPath?: string }) {
     const client = new DDRPDClient('127.0.0.1:9098');
     this.client = client;
+    this.pgClient = new PostgresClient({
+      user: 'postgres',
+      password: 'dev',
+      host: '35.236.69.44',
+      database: 'postgres',
+      port: 5432,
+    });
     this.engine = new SqliteEngine(opts?.dbPath || dbPath);
     this.pendingDB = new SqliteEngine(opts?.pendingDbPath || pendingDbPath);
     this.dbPath = opts?.dbPath || dbPath;
@@ -1057,8 +1066,8 @@ export class IndexerManager {
 
       switch (message.type.toString('utf-8')) {
         case Post.TYPE.toString('utf-8'):
-          await this.deletePendingPost(domainEnvelope.networkId);
-          await this.postsDao?.insertPost(domainEnvelope as DomainEnvelope<DomainPost>);
+          await this.pgClient.insertPost(domainEnvelope as DomainEnvelope<DomainPost>);
+          // await this.postsDao?.insertPost(domainEnvelope as DomainEnvelope<DomainPost>);
           return;
         case Connection.TYPE.toString('utf-8'):
           return await this.connectionsDao?.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>);
@@ -1466,8 +1475,9 @@ export class IndexerManager {
   async streamAllBlobs(): Promise<void> {
     await this.streamBlobInfo();
 
-    const tlds = Object.keys(TLD_CACHE);
-    // const tlds = ['9325']
+    // const tlds = Object.keys(TLD_CACHE);
+    const tlds = ['9325']
+
     for (let i = 0; i < tlds.length; i = i + 1) {
       const selectedTLDs = tlds.slice(i, i + 1).filter(tld => !!tld);
       await this.streamNBlobs(selectedTLDs);

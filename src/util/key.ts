@@ -13,6 +13,7 @@ import redis from "redis";
 import logger from "./logger";
 import {promisify} from "util";
 const client = redis.createClient();
+import bcrypt from "bcrypt";
 
 
 client.on("error", function(error) {
@@ -61,4 +62,13 @@ export function hashString(text: string): string {
   h.update(Buffer.from(text, 'utf-8'));
   const hash = Buffer.from(h.digest());
   return hash.toString('hex');
+}
+
+export async function hashPassword(password: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    bcrypt.hash(password, 10, (err, hash) => {
+      if (err) return reject(err);
+      resolve(new Buffer(hash).toString('hex'));
+    })
+  });
 }

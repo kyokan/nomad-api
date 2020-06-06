@@ -22,6 +22,7 @@ import {
 import {Media as DomainMedia} from 'ddrp-indexer/dist/domain/Media';
 
 import {ConnectionBody, MediaBody, PostBody} from "../../constants";
+import bcrypt from "bcrypt";
 import {Writer} from "../writer";
 import {
   hashConnectionBody,
@@ -35,7 +36,7 @@ import secp256k1 from 'secp256k1';
 import {IndexerManager} from "../indexer";
 import {promisify} from "util";
 import {parseUsername, serializeUsername} from "../../util/user";
-import {createSessionKey, hashString, verifySessionKey} from "../../util/key";
+import {createSessionKey, hashPassword, hashString, verifySessionKey} from "../../util/key";
 
 export type SubdomainDBRow = {
   name: string;
@@ -107,10 +108,11 @@ export class SubdomainManager {
     return this.writer?.appendEnvelope(tld, env, date, broadcast);
   }
 
-  async getNameIndex(subdomain: string | null, tld: string): Promise<number> {
+  async getNameIndex(subdomain: string | null, tld: string, oldSubs: SubdomainDBRow[] = []): Promise<number> {
     if (!subdomain) return 0;
     const subs = await this.getSubdomainByTLD(tld);
-    return subs.map(({ name }) => name).indexOf(subdomain) + 1;
+    const ret = subs.length ? subs : oldSubs;
+    return ret.map(({ name }) => name).indexOf(subdomain) + 1;
   }
 
   async getSubdomainByTLD(tld: string): Promise<SubdomainDBRow[]> {
@@ -125,8 +127,7 @@ export class SubdomainManager {
     }, (row) => {
       rows.push(row as SubdomainDBRow);
     });
-
-    return rows;
+    return rows.reverse();
   }
 
   getSubdomain(tld: string, subdomain: string): SubdomainDBRow | null {
@@ -539,9 +540,12 @@ export class SubdomainManager {
 
       const username = serializeUsername(subdomain, tld);
       const userPw = await this.getSubdomainPassword(tld, subdomain);
-      const hashedPw = hashString(password);
+      const verified = bcrypt.compareSync(
+        password,
+        Buffer.from(userPw, 'hex').toString()
+      );
 
-      if (hashedPw !== userPw) {
+      if (!verified) {
         return res.status(403).send(makeResponse('not authorized', true));
       }
 
@@ -571,8 +575,6 @@ export class SubdomainManager {
         publicKey,
         password,
       } = req.body;
-
-      console.log(req.body);
 
       if (!subdomain || typeof subdomain !== 'string') {
         return res.status(400).send(makeResponse('invalid username', true));
