@@ -324,11 +324,13 @@ export class IndexerManager {
   };
 
   getUserFollowings = async (username: string, order: 'ASC' | 'DESC' = 'ASC', limit = 20, start = 0): Promise<Pageable<DomainFollow, number>> => {
+    if (this.pgClient) return this.pgClient.getUserFollowings(username, order, limit, start);
     const { tld, subdomain } = parseUsername(username);
     return this.connectionsDao!.getFollowees(tld, subdomain || '', limit, start);
   };
 
   getUserFollowers = async (username: string, order: 'ASC' | 'DESC' = 'ASC', limit = 20, start = 0): Promise<Pageable<DomainFollow, number>> => {
+    if (this.pgClient) return this.pgClient.getUserFollowers(username, order, limit, start);
     const { tld, subdomain } = parseUsername(username);
     return this.connectionsDao!.getFollowers(tld, subdomain || '', limit, start);
   };
@@ -1482,6 +1484,7 @@ export class IndexerManager {
   async streamAllBlobs(): Promise<void> {
     const tlds = await this.readAllTLDs();
     // const tlds = ['9325'];
+
 
     for (let i = 0; i < tlds.length; i = i + 1) {
       const selectedTLDs = tlds.slice(i, i + 1).filter(tld => !!tld);

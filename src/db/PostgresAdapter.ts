@@ -155,7 +155,7 @@ export default class PostgresAdapter {
     const client = _client || await this.pool.connect();
     try {
       await client.query('BEGIN');
-
+      console.log(env.message)
       const {rows: [{exists}]} = await client.query(
         'SELECT EXISTS(SELECT 1 FROM envelopes WHERE refhash = $1)',
         [env.refhash]
@@ -691,6 +691,98 @@ export default class PostgresAdapter {
       logger.error('error getting comments', e);
       client.release();
       return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+  };
+
+  getUserFollowings = async (username: string, order: 'ASC' | 'DESC' = 'ASC', limit = 20, start = 0): Promise<Pageable<DomainFollow, number>> => {
+    const { tld, subdomain } = parseUsername(username);
+    const client = await this.pool.connect();
+
+    try {
+      const follows: DomainFollow[] = [];
+
+      let lastId = -1;
+
+      const {rows} = await client.query(`
+        SELECT c.id, c.tld, c.subdomain
+        FROM connections c
+           JOIN envelopes e ON c.envelope_id = e.id
+        WHERE e.tld = $1 AND e.subdomain = $2 AND c.id > $3 AND c.connection_type = 'FOLLOW'
+        ORDER BY c.id ASC
+        LIMIT $4
+      `, [
+        tld,
+        subdomain,
+        start,
+        limit,
+      ]);
+
+      client.release();
+
+      for (let i = 0; i < rows.length; i++ ) {
+        const row = rows[i];
+        follows.push({
+          tld: row.tld,
+          subdomain: row.subdomain,
+        });
+        lastId = row.id;
+      }
+
+      if (!follows.length) {
+        return new Pageable<DomainFollow, number>([], -1);
+      }
+
+      return new Pageable<DomainFollow, number>(follows, lastId);
+    } catch (e) {
+      logger.error('error getting comments', e);
+      client.release();
+      return new Pageable<DomainFollow, number>([], -1);
+    }
+  };
+
+  getUserFollowers = async (username: string, order: 'ASC' | 'DESC' = 'ASC', limit = 20, start = 0): Promise<Pageable<DomainFollow, number>> => {
+    const { tld, subdomain } = parseUsername(username);
+    const client = await this.pool.connect();
+
+    try {
+      const follows: DomainFollow[] = [];
+
+      let lastId = -1;
+
+      const {rows} = await client.query(`
+        SELECT c.id, c.tld, c.subdomain
+        FROM connections c
+           JOIN envelopes e ON c.envelope_id = e.id
+        WHERE c.tld = $1 AND c.subdomain = $2 AND c.id > $3 AND c.connection_type = 'FOLLOW'
+        ORDER BY c.id ASC
+        LIMIT $4
+      `, [
+        tld,
+        subdomain,
+        start,
+        limit,
+      ]);
+
+      client.release();
+
+      for (let i = 0; i < rows.length; i++ ) {
+        const row = rows[i];
+        follows.push({
+          tld: row.tld,
+          subdomain: row.subdomain,
+        });
+        lastId = row.id;
+      }
+
+      if (!follows.length) {
+        return new Pageable<DomainFollow, number>([], -1);
+      }
+
+      return new Pageable<DomainFollow, number>(follows, lastId);
+    } catch (e) {
+      logger.error('error getting comments', e);
+      client.release();
+      return new Pageable<DomainFollow, number>([], -1);
     }
   };
 }
