@@ -350,11 +350,17 @@ export default class PostgresAdapter {
   }
 
   getPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
-    const client = await this.pool.connect();
-    const envelopes: DomainEnvelope<DomainPost>[] = [];
-    const offset = defaultOffset || 0;
+    if (limit <= 0) {
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
 
-    const {rows} = await client.query(`
+    const client = await this.pool.connect();
+
+    try {
+      const envelopes: DomainEnvelope<DomainPost>[] = [];
+      const offset = defaultOffset || 0;
+
+      const {rows} = await client.query(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
@@ -362,24 +368,183 @@ export default class PostgresAdapter {
         ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
         LIMIT $1 OFFSET $2
     `, [
-      limit,
-      offset,
-    ]);
+        limit,
+        offset,
+      ]);
 
-    for (let i = 0; i < rows.length; i++) {
-      const post = await this.mapPost(rows[i], true, client);
-      if (post) {
-        envelopes.push(post);
+      for (let i = 0; i < rows.length; i++) {
+        const post = await this.mapPost(rows[i], true, client);
+        if (post) {
+          envelopes.push(post);
+        }
       }
-    }
 
-    if (!envelopes.length) {
+      client.release();
+
+      if (!envelopes.length) {
+        return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+      }
+
+      return new Pageable<DomainEnvelope<DomainPost>, number>(
+        envelopes,
+        envelopes.length + Number(offset),
+      );
+    } catch (e) {
+      logger.error('error getting comments', e);
+      client.release();
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+  };
+
+  getCommentsByHash = async (reference: string | null, order?: 'ASC' | 'DESC', limit = 20,  defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (limit <= 0) {
       return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
     }
 
-    return new Pageable<DomainEnvelope<DomainPost>, number>(
-      envelopes,
-      envelopes.length + Number(offset),
-    );
+    const client = await this.pool.connect();
+
+    try {
+      const envelopes: DomainEnvelope<DomainPost>[] = [];
+      const offset = order === 'ASC' ? defaultOffset || 0 : defaultOffset || 9999999;
+
+      const {rows} = await client.query(`
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+        WHERE p.reference = $3 AND (p.topic NOT LIKE '.%' OR p.topic is NULL) AND p.id ${order === 'DESC' ? '<' : '>'} $1
+        ORDER BY p.id ${order === 'ASC' ? 'ASC' : 'DESC'}
+        LIMIT $2
+    `, [
+        offset,
+        limit,
+        reference,
+      ]);
+
+      for (let i = 0; i < rows.length; i++) {
+        const post = await this.mapPost(rows[i], true, client);
+        if (post) {
+          envelopes.push(post);
+        }
+      }
+
+      client.release();
+
+      if (!envelopes.length) {
+        return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+      }
+
+      return new Pageable<DomainEnvelope<DomainPost>, number>(
+        envelopes,
+        envelopes[envelopes.length - 1].message.id,
+      );
+    } catch (e) {
+      logger.error('error getting comments', e);
+      client.release();
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
   }
+
+  scanCommentCounts = async (): Promise<{[parent: string]: number}> => {
+    const client = await this.pool.connect();
+    const commentCounts: {[parent: string]: number} = {};
+
+    try {
+      const sql = `
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+        p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+      `;
+
+      const {rows} = await client.query(sql);
+      if (rows.length) {
+        rows.forEach(row => {
+          if (row.reference) {
+            commentCounts[row.reference] = commentCounts[row.reference] || 0;
+            commentCounts[row.reference]++;
+          }
+        });
+      }
+      return commentCounts;
+    } catch (e) {
+      logger.error('error scanning comments', e);
+      client.release();
+      return commentCounts;
+    }
+  };
+
+  scanLikeCounts = async (): Promise<{[parent: string]: number}> => {
+    const client = await this.pool.connect();
+    const likeCounts: {[parent: string]: number} = {};
+
+    try {
+      const sql = `
+        SELECT * FROM moderations m
+        LEFT JOIN envelopes e ON m.envelope_id = e.id
+      `;
+
+      const {rows} = await client.query(sql);
+
+      if (rows.length) {
+        rows.forEach(row => {
+          if (row.reference && row.moderation_type === 'LIKE') {
+            likeCounts[row.reference] = likeCounts[row.reference] || 0;
+            likeCounts[row.reference]++;
+          }
+        });
+      }
+      return likeCounts;
+    } catch (e) {
+      logger.error('error scanning likes', e);
+      client.release();
+      return likeCounts;
+    }
+  };
+
+  scanMetadata = async (): Promise<any> => {
+    const client = await this.pool.connect();
+    try {
+      const commentCounts = await this.scanCommentCounts();
+      const likeCounts = await this.scanLikeCounts();
+
+      for (let parentHash in commentCounts) {
+        const {rows} = await client.query(`
+          SELECT p.envelope_id
+          FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+          WHERE e.refhash = $1
+        `, [parentHash]);
+
+        if (rows[0]?.envelope_id) {
+          await client.query(`
+            UPDATE posts SET reply_count = $2
+            WHERE envelope_id = $1
+          `, [rows[0]?.envelope_id, commentCounts[parentHash]]);
+        }
+      }
+
+      for (let refhash in likeCounts) {
+        const {rows} = await client.query(`
+          SELECT p.envelope_id
+          FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+          WHERE e.refhash = $1
+        `, [refhash]);
+
+        if (rows[0]?.envelope_id) {
+          await client.query(`
+            UPDATE posts SET like_count = $2
+            WHERE envelope_id = $1
+          `, [rows[0]?.envelope_id, likeCounts[refhash]]);
+        }
+      }
+
+      client.release();
+
+      return {
+        commentCounts,
+        likeCounts,
+      };
+    } catch (e) {
+      logger.error('error getting comments', e);
+      client.release();
+    }
+  };
 }

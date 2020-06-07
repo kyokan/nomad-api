@@ -478,6 +478,10 @@ export class IndexerManager {
   };
 
   getCommentsByHash = async (reference: string | null, order?: 'ASC' | 'DESC', limit = 20,  defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (this.pgClient) {
+      return this.pgClient.getCommentsByHash(reference, order, limit, defaultOffset);
+    }
+
     const envelopes: DomainEnvelope<DomainPost>[] = [];
     const offset = order === 'ASC'
       ? defaultOffset || 0
@@ -1210,6 +1214,10 @@ export class IndexerManager {
   };
 
   scanMetadata = async (): Promise<any> => {
+    if (this.pgClient) {
+      return this.pgClient.scanMetadata();
+    }
+
     const commentCounts = await this.scanCommentCounts();
     const likeCounts = await this.scanLikeCounts();
 
@@ -1365,12 +1373,12 @@ export class IndexerManager {
       name: '',
       tld,
     }];
+
     return new Promise((resolve, reject) => {
       logger.info(`scan subdomain data`, { tld });
       timeout = setTimeout(() => {
         resolve();
       }, 500);
-
 
       iterateAllSubdomains(r, (err, sub) => {
         if (timeout) clearTimeout(timeout);
@@ -1437,12 +1445,7 @@ export class IndexerManager {
 
         return true;
       });
-
-
-
     });
-
-
   };
 
   async start () {

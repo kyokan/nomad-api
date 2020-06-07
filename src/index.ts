@@ -89,7 +89,7 @@ let watchInterval: Timeout;
       res.status(401).send(makeResponse('unauthorized', true));
       return;
     }
-    await indexer.streamAllBlobs();
+    // await indexer.streamAllBlobs();
     const ret = await indexer.scanMetadata();
     res.send(ret);
   });
