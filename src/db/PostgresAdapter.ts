@@ -1027,4 +1027,42 @@ export default class PostgresAdapter {
       return ret;
     }
   };
+
+  queryTrendingPosters = async (limit = 20, offset = 0): Promise<Pageable<{username: string; count: number}, number>> => {
+    const ret: {username: string; count: number}[] = [];
+    const client = await this.pool.connect();
+    try {
+      const { rows } = await client.query(`
+        SELECT COUNT(p.id) as count, e.tld, e.subdomain
+        FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+        WHERE (p.reference is NULL AND (p.topic NOT LIKE '.%' OR p.topic is NULL))
+        GROUP BY e.tld, e.subdomain
+        ORDER BY count DESC LIMIT $1 OFFSET $2
+      `, [limit, offset]);
+
+      for (let i = 0; i < rows.length; i++) {
+        ret.push(rows[i]);
+      }
+
+      if (!ret.length) {
+        return {
+          items: [],
+          next: -1,
+        };
+      }
+
+      return {
+        items: ret,
+        next: ret.length + Number(offset),
+      };
+
+    } catch (e) {
+      logger.error('erorr querying trending posters', e);
+      client.release();
+      return {
+        items: [],
+        next: -1,
+      };
+    }
+  };
 }
