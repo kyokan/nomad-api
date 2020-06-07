@@ -505,6 +505,8 @@ export class IndexerManager {
   };
 
   private getMediaByHash = async (refhash: string): Promise<any|undefined> => {
+    if (this.pgClient) return this.pgClient.getMediaByHash(refhash);
+
     const row = this.engine.first(`
       SELECT e.created_at, m.filename, m.mime_type, m.content
       FROM media m JOIN envelopes e ON m.envelope_id = e.id
@@ -908,6 +910,8 @@ export class IndexerManager {
   }
 
   async getUserUploads (username: string, order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<any, number>> {
+    if (this.pgClient) return this.pgClient.getUserUploads(username, order, limit, defaultOffset);
+
     const { tld, subdomain } = parseUsername(username);
     const offset = defaultOffset || 0;
 

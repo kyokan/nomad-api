@@ -547,7 +547,7 @@ export default class PostgresAdapter {
         likeCounts,
       };
     } catch (e) {
-      logger.error('error getting comments', e);
+      logger.error('error scanning metadata', e);
       client.release();
     }
   };
@@ -689,7 +689,7 @@ export default class PostgresAdapter {
       );
 
     } catch (e) {
-      logger.error('error getting comments', e);
+      logger.error('error getting filter', { f });
       client.release();
       return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
     }
@@ -736,7 +736,7 @@ export default class PostgresAdapter {
 
       return new Pageable<DomainFollow, number>(follows, lastId);
     } catch (e) {
-      logger.error('error getting comments', e);
+      logger.error('error getting user connectees', { tld, subdomain });
       client.release();
       return new Pageable<DomainFollow, number>([], -1);
     }
@@ -783,9 +783,65 @@ export default class PostgresAdapter {
 
       return new Pageable<DomainFollow, number>(follows, lastId);
     } catch (e) {
-      logger.error('error getting comments', e);
+      logger.error('error getting user connecters', { tld, subdomain });
       client.release();
       return new Pageable<DomainFollow, number>([], -1);
+    }
+  };
+
+  getUserUploads = async (username: string, order: 'ASC' | 'DESC' = 'ASC', limit = 20, start = 0): Promise<Pageable<DomainEnvelope<DomainMedia>, number>> => {
+    const { tld, subdomain } = parseUsername(username);
+    const client = await this.pool.connect();
+
+    try {
+      const medias: DomainMedia[] = [];
+
+      let lastId = -1;
+
+      const {rows} = await client.query(`
+        SELECT e.id as envelope_id, m.id as media, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
+          m.filename, m.mime_type
+        FROM media m JOIN envelopes e ON m.envelope_id = e.id
+        WHERE e.tld = $1 AND e.subdomain = $2
+        ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
+        LIMIT $3 OFFSET $4
+      `, [
+        tld,
+        subdomain,
+        limit,
+        start,
+      ]);
+
+      client.release();
+
+      for (let i = 0; i < rows.length; i++ ) {
+        const row = rows[i];
+        medias.push({
+          id: row.envelope_id,
+          // @ts-ignore
+          tld: row.tld,
+          subdomain: row.subdomain,
+          networkId: row.network_id,
+          refhash: row.refhash,
+          createdAt: new Date(row.created_at * 1000),
+          message: {
+            filename: row.filename,
+            mimeType: row.mime_type,
+          }
+        });
+        lastId = row.id;
+      }
+
+      if (!medias.length) {
+        return new Pageable<DomainEnvelope<DomainMedia>, number>([], -1);
+      }
+
+      // @ts-ignore
+      return new Pageable<DomainEnvelope<DomainMedia>, number>(medias, lastId);
+    } catch (e) {
+      logger.error('error getting user uploads', { tld, subdomain });
+      client.release();
+      return new Pageable<DomainEnvelope<DomainMedia>, number>([], -1);
     }
   };
 
@@ -881,6 +937,24 @@ export default class PostgresAdapter {
         blockings: 0,
         blockers: 0,
       };
+    }
+  }
+
+  getMediaByHash = async (refhash: string): Promise<any|undefined> => {
+    const client = await this.pool.connect();
+
+    try {
+      const {rows} = await client.query(`
+        SELECT e.created_at, m.filename, m.mime_type, m.content
+        FROM media m JOIN envelopes e ON m.envelope_id = e.id
+        WHERE e.refhash = $1
+        ORDER BY e.created_at DESC
+      `, [refhash]);
+      client.release();
+      return rows[0];
+    } catch (e) {
+      logger.error('error getting media', e);
+      client.release();
     }
   }
 }
