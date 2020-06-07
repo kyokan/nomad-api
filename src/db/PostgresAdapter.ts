@@ -10,7 +10,7 @@ import {Moderation as DomainModeration} from 'ddrp-indexer/dist/domain/Moderatio
 import {Media as DomainMedia} from 'ddrp-indexer/dist/domain/Media';
 import logger from "../util/logger";
 
-type PostgresClientOpts = {
+type PostgresAdapterOpts = {
   user: string;
   password?: string;
   host: string;
@@ -18,14 +18,14 @@ type PostgresClientOpts = {
   port: number;
 }
 
-export default class PostgresClient {
+export default class PostgresAdapter {
   pool: Pool;
 
-  constructor(opts: PostgresClientOpts) {
+  constructor(opts: PostgresAdapterOpts) {
     this.pool = new Pool(opts);
   }
 
-  async insertEnvelope(env: DomainEnvelope<DomainPost>, _client?: PoolClient): Promise<number> {
+  async insertEnvelope(env: DomainEnvelope<any>, _client?: PoolClient): Promise<number> {
     const client = _client || await this.pool.connect();
 
     try {
@@ -56,14 +56,138 @@ export default class PostgresClient {
     }
   }
 
+  async insertModeration(env: DomainEnvelope<DomainModeration>, _client?: PoolClient) {
+    const client = _client || await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const {rows: [{exists}]} = await client.query(
+        'SELECT EXISTS(SELECT 1 FROM envelopes WHERE refhash = $1)',
+        [env.refhash]
+      );
+
+      if (!exists) {
+        const envelopeId: number = await this.insertEnvelope(env, client);
+        await client.query(`
+          INSERT INTO moderations (envelope_id, reference, moderation_type)
+          VALUES ($1, $2, $3)
+        `, [
+          envelopeId,
+          env.message.reference,
+          env.message.type,
+        ]);
+
+        const {rows} = await client.query(`
+          SELECT p.id FROM posts p JOIN  envelopes e ON p.envelope_id = e.id WHERE e.refhash = $1
+        `, [
+          env.message.reference,
+        ]);
+
+        if (rows.length) {
+          await client.query(
+            env.message.type === 'LIKE'
+              ? `
+                UPDATE posts
+                SET (like_count) = (like_count + 1)
+                WHERE id = $1
+              `
+              : `
+                UPDATE posts
+                SET (pin_count) = (pin_count + 1)
+                WHERE id = $1
+              `,
+            [
+                rows[0].id
+              ]
+          );
+        }
+      }
+
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e
+    } finally {
+      if (!_client) {
+        client.release();
+      }
+    }
+  }
+
+  async insertMedia(env: DomainEnvelope<DomainMedia>, _client?: PoolClient) {
+    const client = _client || await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const {rows: [{exists}]} = await client.query(
+        'SELECT EXISTS(SELECT 1 FROM envelopes WHERE refhash = $1)',
+        [env.refhash]
+      );
+
+      if (!exists) {
+        const envelopeId: number = await this.insertEnvelope(env, client);
+        await client.query(`
+          INSERT INTO media (envelope_id, filename, mime_type, content)
+          VALUES ($1, $2, $3, $4)
+        `, [
+          envelopeId,
+          env.message.filename,
+          env.message.mimeType,
+          env.message.content,
+        ]);
+      }
+
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e
+    } finally {
+      if (!_client) {
+        client.release();
+      }
+    }
+  }
+
+  async insertConnection(env: DomainEnvelope<DomainConnection>, _client?: PoolClient) {
+    const client = _client || await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const {rows: [{exists}]} = await client.query(
+        'SELECT EXISTS(SELECT 1 FROM envelopes WHERE refhash = $1)',
+        [env.refhash]
+      );
+
+      if (!exists) {
+        const envelopeId: number = await this.insertEnvelope(env, client);
+        await client.query(`
+          INSERT INTO connections (envelope_id, tld, subdomain, connection_type)
+          VALUES ($1, $2, $3, $4)
+        `, [
+          envelopeId,
+          env.message.tld,
+          env.message.subdomain,
+          env.message.type,
+        ]);
+      }
+
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e
+    } finally {
+      if (!_client) {
+        client.release();
+      }
+    }
+  }
+
   async insertPost(env: DomainEnvelope<DomainPost>, _client?: PoolClient) {
     const client = _client || await this.pool.connect();
 
     try {
       await client.query('BEGIN');
-      const {
-        rows: [{exists}],
-      } = await client.query(
+      const {rows: [{exists}]} = await client.query(
         'SELECT EXISTS(SELECT 1 FROM envelopes WHERE refhash = $1)',
         [env.refhash]
       );
@@ -114,7 +238,7 @@ export default class PostgresClient {
 
         await this.handleReplies(env, 0, client);
       }
-      
+
       await client.query('COMMIT');
 
     } catch (e) {
@@ -139,7 +263,7 @@ export default class PostgresClient {
       if (!ref) {
         return;
       }
-      console.log(env.message.id);
+
       await client.query('UPDATE posts SET (reply_count) = (reply_count + 1) WHERE id = $1', [
         env.message.id,
       ]);
@@ -168,7 +292,6 @@ export default class PostgresClient {
     `, [
       refhash,
     ]);
-    console.log(rows);
     return await this.mapPost(rows[0], includeTags, client);
   }
 
@@ -183,7 +306,7 @@ export default class PostgresClient {
       `, [
         row.post_id
       ]);
-      console.log(res);
+      console.log({res});
     }
 
     const env = new DomainEnvelope<DomainPost>(

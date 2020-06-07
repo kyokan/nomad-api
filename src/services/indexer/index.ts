@@ -1,4 +1,3 @@
-import PostgresClient from "../../db/PostgresClient";
 import DDRPDClient from "ddrp-js/dist/ddrp/DDRPDClient";
 import {BufferedReader} from "ddrp-js/dist/io/BufferedReader";
 import {BlobReader} from "ddrp-js/dist/ddrp/BlobReader";
@@ -47,6 +46,7 @@ const pendingDbPath = path.join(appDataPath, 'pending.db');
 import {mapWireToEnvelope} from "../../util/envelope";
 import crypto from 'crypto';
 import {SubdomainDBRow} from "../subdomains";
+import PostgresAdapter from "../../db/PostgresAdapter";
 
 const SPRITE_TO_SPRITES: {[sprite: string]: any} = {
   identicon: Identicon,
@@ -80,7 +80,7 @@ export class IndexerManager {
   client: DDRPDClient;
   engine: SqliteEngine;
   pendingDB: SqliteEngine;
-  pgClient: PostgresClient;
+  pgClient: PostgresAdapter;
   dbPath: string;
   pendingDbPath: string;
   resourcePath: string;
@@ -88,7 +88,8 @@ export class IndexerManager {
   constructor(opts?: { dbPath?: string; namedbPath?: string; resourcePath?: string; pendingDbPath?: string }) {
     const client = new DDRPDClient('127.0.0.1:9098');
     this.client = client;
-    this.pgClient = new PostgresClient({
+
+    this.pgClient = new PostgresAdapter({
       user: 'postgres',
       password: 'dev',
       host: '35.236.69.44',
@@ -1070,11 +1071,17 @@ export class IndexerManager {
           // await this.postsDao?.insertPost(domainEnvelope as DomainEnvelope<DomainPost>);
           return;
         case Connection.TYPE.toString('utf-8'):
-          return await this.connectionsDao?.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>);
+          await this.pgClient.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>)
+          // await this.connectionsDao?.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>);
+          return;
         case Moderation.TYPE.toString('utf-8'):
-          return await this.moderationsDao?.insertModeration(domainEnvelope as DomainEnvelope<DomainModeration>);
+          await this.pgClient.insertModeration(domainEnvelope as DomainEnvelope<DomainModeration>);
+          // await this.moderationsDao?.insertModeration(domainEnvelope as DomainEnvelope<DomainModeration>);
+          return;
         case Media.TYPE.toString('utf-8'):
-          return await this.mediaDao?.insertMedia(domainEnvelope as DomainEnvelope<DomainMedia>);
+          await this.pgClient.insertMedia(domainEnvelope as DomainEnvelope<DomainMedia>);
+          // await this.mediaDao?.insertMedia(domainEnvelope as DomainEnvelope<DomainMedia>);
+          return;
         default:
           return;
       }
