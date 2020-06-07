@@ -10,6 +10,8 @@ import {Moderation as DomainModeration} from 'ddrp-indexer/dist/domain/Moderatio
 import {Media as DomainMedia} from 'ddrp-indexer/dist/domain/Media';
 import {Pageable} from 'ddrp-indexer/dist/dao/Pageable';
 import logger from "../util/logger";
+import {extendFilter, Filter} from "../util/filter";
+import {parseUsername} from "../util/user";
 
 type PostgresAdapterOpts = {
   user: string;
@@ -502,6 +504,7 @@ export default class PostgresAdapter {
 
   scanMetadata = async (): Promise<any> => {
     const client = await this.pool.connect();
+
     try {
       const commentCounts = await this.scanCommentCounts();
       const likeCounts = await this.scanLikeCounts();
@@ -545,6 +548,149 @@ export default class PostgresAdapter {
     } catch (e) {
       logger.error('error getting comments', e);
       client.release();
+    }
+  };
+
+  getPostsByFilter = async (f: Filter, order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (limit <= 0) {
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+    const client = await this.pool.connect();
+
+    try {
+      const envelopes: DomainEnvelope<DomainPost>[] = [];
+      const {
+        postedBy,
+        repliedBy,
+        likedBy,
+        allowedTags,
+      } = extendFilter(f);
+
+      let postedByQueries = '';
+      let repliedByQueries = '';
+      let postedBySelect = '';
+      let repliedBySelect = '';
+      let allowedTagsJoin = '';
+      let likedBySelect = '';
+      let likedByQueries = '';
+
+      const offset = order === 'ASC'
+        ? defaultOffset || 0
+        : defaultOffset || 999999999999999999999;
+
+      // if (allowedTags.includes('*')) {
+      //   allowedTagsJoin = `
+      //     JOIN tags_posts tp ON p.id = tp.post_id AND (p.topic NOT LIKE ".%" OR p.topic is NULL)
+      //   `
+      // } else
+      if (allowedTags.length && !allowedTags.includes('*')) {
+        allowedTagsJoin = `
+        JOIN (tags_posts tp JOIN tags t ON t.id = tp.tag_id)
+            ON t.name IN (${allowedTags.map(t => `'${t}'`).join(',')}) AND p.id = tp.post_id AND (p.topic NOT LIKE '.%' OR p.topic is NULL)
+      `
+      }
+
+      if (postedBy.length) {
+        postedBySelect = `
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        FROM posts p
+        JOIN envelopes e ON p.envelope_id = e.id
+        ${allowedTagsJoin}
+      `;
+
+        if (!postedBy.includes('*')) {
+          postedByQueries = `(${postedBy
+            .map(username => {
+              const { tld, subdomain } = parseUsername(username);
+              return `(e.tld = '${tld}' AND subdomain = '${subdomain}' AND p.reference is NULL AND (p.topic NOT LIKE '.%' OR p.topic is NULL))`;
+            })
+            .join(' OR ')} AND p.id ${order === 'DESC' ? '<' : '>'} ${offset})`;
+        } else {
+          postedByQueries = `(p.reference is NULL AND (p.topic NOT LIKE '.%' OR p.topic is NULL) AND p.id ${order === 'DESC' ? '<' : '>'} ${offset})`;
+        }
+
+        postedBySelect = postedBySelect + ' WHERE ' + postedByQueries
+      }
+
+      if (repliedBy.length) {
+        repliedBySelect = `
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        FROM posts p
+        JOIN envelopes e ON p.envelope_id = e.id
+        ${allowedTagsJoin}
+      `;
+
+        if (!repliedBy.includes('*')) {
+          repliedByQueries = `(${repliedBy
+            .map(username => {
+              const { tld, subdomain } = parseUsername(username);
+              return `(e.tld = '${tld}' AND subdomain = '${subdomain}' AND p.reference is not NULL AND (p.topic NOT LIKE '.%' OR p.topic is NULL))`;
+            })
+            .join(' OR ')} AND p.id ${order === 'DESC' ? '<' : '>'} ${offset})`;
+        } else {
+          repliedByQueries = `(p.reference is not NULL AND (p.topic NOT LIKE '.%' OR p.topic is NULL) AND p.id ${order === 'DESC' ? '<' : '>'} ${offset})`;
+        }
+
+        repliedBySelect = repliedBySelect + ' WHERE ' + repliedByQueries
+      }
+
+      if (likedBy.length) {
+        likedBySelect = `
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        FROM posts p
+        LEFT JOIN envelopes e ON p.envelope_id = e.id
+        ${allowedTagsJoin}
+        JOIN (moderations mod JOIN envelopes env ON mod.envelope_id = env.id)
+        ON mod.reference = e.refhash
+      `;
+
+        if (!likedBy.includes('*')) {
+          likedByQueries = `(${likedBy
+            .map(username => {
+              const { tld, subdomain } = parseUsername(username);
+              return `(env.tld = '${tld}' AND env.subdomain = '${subdomain}' AND p.reference is NULL AND (p.topic NOT LIKE '.%' OR p.topic is NULL))`;
+            })
+            .join(' OR ')} AND p.id ${order === 'DESC' ? '<' : '>'} ${offset})`;
+        } else {
+          likedByQueries = `(p.reference is NULL AND (p.topic NOT LIKE '.%' OR p.topic is NULL) AND p.id ${order === 'DESC' ? '<' : '>'} ${offset})`;
+        }
+
+        likedBySelect = likedBySelect + ' WHERE ' + likedByQueries
+      }
+
+      const {rows} = await client.query(`
+          ${[postedBySelect, repliedBySelect, likedBySelect].filter(d => !!d).join('UNION')}
+          ORDER BY p.id ${order === 'ASC' ? 'ASC' : 'DESC'}
+          LIMIT $1
+      `, [
+        limit,
+      ]);
+
+      for (let i = 0; i < rows.length; i++) {
+        const env = await this.mapPost(rows[i], true, client);
+        if (env) {
+          envelopes.push(env);
+        }
+      }
+
+      client.release();
+
+      if (!envelopes.length) {
+        return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+      }
+
+      return new Pageable<DomainEnvelope<DomainPost>, number>(
+        envelopes,
+        envelopes[envelopes.length - 1].message.id,
+      );
+
+    } catch (e) {
+      logger.error('error getting comments', e);
+      client.release();
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
     }
   };
 }

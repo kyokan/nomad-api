@@ -102,17 +102,6 @@ export class IndexerManager {
   }
 
   handlers = {
-    '/pending/posts': async (req: Request, res: Response) => {
-      trackAttempt('Get All Posts', req);
-      try {
-        const { order, offset, limit } = req.query || {};
-        const posts = await this.getPendingPosts(order, limit, offset);
-        res.send(makeResponse(posts));
-      } catch (e) {
-        res.status(500).send(makeResponse(e.message, true));
-      }
-    },
-
     '/posts': async (req: Request, res: Response) => {
       trackAttempt('Get All Posts', req);
       try {
@@ -309,7 +298,6 @@ export class IndexerManager {
   };
 
   setRoutes = (app: Express) => {
-    app.get('/pending/posts', this.handlers['/pending/posts']);
     app.get('/posts', this.handlers['/posts']);
     app.get('/posts/:hash', this.handlers['/posts/:hash']);
     app.get('/posts/:hash/comments', this.handlers['/posts/:hash/comments']);
@@ -353,6 +341,8 @@ export class IndexerManager {
   };
 
   getPostsByFilter = async (f: Filter, order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (this.pgClient) return this.pgClient.getPostsByFilter(f, order, limit, defaultOffset);
+
     const envelopes: DomainEnvelope<DomainPost>[] = [];
     const {
       postedBy,
