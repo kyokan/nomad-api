@@ -8,6 +8,7 @@ import {
 } from 'ddrp-indexer/dist/domain/Connection';
 import {Moderation as DomainModeration} from 'ddrp-indexer/dist/domain/Moderation';
 import {Media as DomainMedia} from 'ddrp-indexer/dist/domain/Media';
+import {Pageable} from 'ddrp-indexer/dist/dao/Pageable';
 import logger from "../util/logger";
 
 type PostgresAdapterOpts = {
@@ -22,7 +23,11 @@ export default class PostgresAdapter {
   pool: Pool;
 
   constructor(opts: PostgresAdapterOpts) {
-    this.pool = new Pool(opts);
+    const pool = new Pool(opts);
+    pool.on("error", (err, client) => {
+      logger.error(err);
+    });
+    this.pool = pool;
   }
 
   async insertEnvelope(env: DomainEnvelope<any>, _client?: PoolClient): Promise<number> {
@@ -42,7 +47,7 @@ export default class PostgresAdapter {
         env.subdomain,
         env.networkId,
         env.refhash,
-        env.createdAt,
+        env.createdAt.toISOString(),
       ]);
       await client.query('COMMIT');
       return envId;
@@ -50,9 +55,9 @@ export default class PostgresAdapter {
       await client.query('ROLLBACK');
       throw e
     } finally {
-      if (!_client) {
-        client.release();
-      }
+      // if (!_client) {
+      //   client.release();
+      // }
     }
   }
 
@@ -88,12 +93,12 @@ export default class PostgresAdapter {
             env.message.type === 'LIKE'
               ? `
                 UPDATE posts
-                SET (like_count) = (like_count + 1)
+                SET like_count = like_count + 1
                 WHERE id = $1
               `
               : `
                 UPDATE posts
-                SET (pin_count) = (pin_count + 1)
+                SET pin_count = pin_count + 1
                 WHERE id = $1
               `,
             [
@@ -106,11 +111,9 @@ export default class PostgresAdapter {
       await client.query('COMMIT');
     } catch (e) {
       await client.query('ROLLBACK');
-      throw e
     } finally {
-      if (!_client) {
-        client.release();
-      }
+      logger.verbose('released pg client', { tld: env.tld });
+      client.release();
     }
   }
 
@@ -140,11 +143,9 @@ export default class PostgresAdapter {
       await client.query('COMMIT');
     } catch (e) {
       await client.query('ROLLBACK');
-      throw e
     } finally {
-      if (!_client) {
-        client.release();
-      }
+      logger.verbose('released pg client', { tld: env.tld });
+      client.release();
     }
   }
 
@@ -169,21 +170,20 @@ export default class PostgresAdapter {
           env.message.subdomain,
           env.message.type,
         ]);
+
       }
 
       await client.query('COMMIT');
     } catch (e) {
       await client.query('ROLLBACK');
-      throw e
     } finally {
-      if (!_client) {
-        client.release();
-      }
+      logger.verbose('released pg client', { tld: env.tld });
+      client.release();
     }
   }
 
-  async insertPost(env: DomainEnvelope<DomainPost>, _client?: PoolClient) {
-    const client = _client || await this.pool.connect();
+  async insertPost(env: DomainEnvelope<DomainPost>, _client?: PoolClient): Promise<void> {
+    const client = await this.pool.connect();
 
     try {
       await client.query('BEGIN');
@@ -197,8 +197,8 @@ export default class PostgresAdapter {
         const {
           rows: [{id: postId}]
         } = await client.query(`
-          INSERT INTO posts (envelope_id, body, title, reference, topic)
-          VALUES ($1, $2, $3, $4, $5)
+          INSERT INTO posts (envelope_id, body, title, reference, topic, reply_count, like_count, pin_count)
+          VALUES ($1, $2, $3, $4, $5, 0, 0, 0)
           RETURNING id
     `, [
           envelopeId,
@@ -227,27 +227,25 @@ export default class PostgresAdapter {
 
           if (rows.length) {
             await client.query(`
-          INSERT INTO tags_posts (tag_id, post_id)
-          VALUES ($1, $2)
-        `, [
+              INSERT INTO tags_posts (tag_id, post_id)
+              VALUES ($1, $2)
+            `, [
               rows[0].id,
               postId,
             ]);
           }
+
+          await this.handleReplies(env, 0, client);
         }
 
-        await this.handleReplies(env, 0, client);
       }
-
       await client.query('COMMIT');
-
     } catch (e) {
       await client.query('ROLLBACK');
-      throw e
+      logger.error('error inserting post to postgres', e);
     } finally {
-      if (!_client) {
-        client.release();
-      }
+      logger.verbose('released pg client', { tld: env.tld });
+      client.release();
     }
   }
 
@@ -258,30 +256,29 @@ export default class PostgresAdapter {
       if (!env.message.reference) {
         return;
       }
-      const ref = await this.getPostByRefhashTags(env.message.reference, false);
+      const ref = await this.getPostByRefhashTags(env.message.reference, false, client);
 
       if (!ref) {
         return;
       }
 
-      await client.query('UPDATE posts SET (reply_count) = (reply_count + 1) WHERE id = $1', [
+      await client.query('UPDATE posts SET reply_count = reply_count + 1 WHERE id = $1', [
         env.message.id,
       ]);
 
       await this.handleReplies(ref, depth + 1, client);
 
       await client.query('COMMIT');
+
     } catch (e) {
       await client.query('ROLLBACK');
       throw e
     } finally {
-      if (!_client) {
-        client.release();
-      }
+
     }
   }
 
-  private async getPostByRefhashTags (refhash: string, includeTags: boolean, _client?: PoolClient): Promise<DomainEnvelope<DomainPost> | null> {
+  async getPostByRefhashTags (refhash: string, includeTags: boolean, _client?: PoolClient): Promise<DomainEnvelope<DomainPost> | null> {
     const client = _client || await this.pool.connect();
     const { rows } = await client.query(`
       SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
@@ -295,9 +292,12 @@ export default class PostgresAdapter {
     return await this.mapPost(rows[0], includeTags, client);
   }
 
-  async mapPost(row: { [k: string]: any }, includeTags: boolean,  _client?: PoolClient): Promise<DomainEnvelope<DomainPost> | null> {
+  // @ts-ignore
+  async mapPost(row?: { [k: string]: any }, includeTags: boolean,  _client?: PoolClient): Promise<DomainEnvelope<DomainPost> | null> {
+    if (!row) return null;
     const client = _client || await this.pool.connect();
     const tags: string[] = [];
+
     if (includeTags) {
       const res = await client.query(`
         SELECT name as tag 
@@ -306,7 +306,7 @@ export default class PostgresAdapter {
       `, [
         row.post_id
       ]);
-      console.log({res});
+      res.rows.forEach(({ tag }) => tags.push(tag));
     }
 
     const env = new DomainEnvelope<DomainPost>(
@@ -315,7 +315,7 @@ export default class PostgresAdapter {
       row.subdomain,
       row.network_id,
       row.refhash,
-      new Date(row.created_at * 1000),
+      row.created_at,
       new DomainPost(
         row.post_id,
         row.body,
@@ -347,5 +347,39 @@ export default class PostgresAdapter {
         client.release();
       }
     }
+  }
+
+  getPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    const client = await this.pool.connect();
+    const envelopes: DomainEnvelope<DomainPost>[] = [];
+    const offset = defaultOffset || 0;
+
+    const {rows} = await client.query(`
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+        WHERE (p.reference is NULL AND (p.topic NOT LIKE '.%' OR p.topic is NULL))
+        ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
+        LIMIT $1 OFFSET $2
+    `, [
+      limit,
+      offset,
+    ]);
+
+    for (let i = 0; i < rows.length; i++) {
+      const post = await this.mapPost(rows[i], true, client);
+      if (post) {
+        envelopes.push(post);
+      }
+    }
+
+    if (!envelopes.length) {
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+
+    return new Pageable<DomainEnvelope<DomainPost>, number>(
+      envelopes,
+      envelopes.length + Number(offset),
+    );
   }
 }

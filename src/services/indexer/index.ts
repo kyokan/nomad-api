@@ -1,7 +1,7 @@
 import DDRPDClient from "ddrp-js/dist/ddrp/DDRPDClient";
 import {BufferedReader} from "ddrp-js/dist/io/BufferedReader";
 import {BlobReader} from "ddrp-js/dist/ddrp/BlobReader";
-import {iterateAllEnvelopes, isSubdomainBlob, iterateAllSubdomains} from "ddrp-js/dist/social/streams";
+import {asyncIterateAllEnvelopes, isSubdomainBlob, iterateAllSubdomains} from "ddrp-js/dist/social/streams";
 import {Envelope as WireEnvelope} from "ddrp-js/dist/social/Envelope";
 import {Subdomain} from "ddrp-js/dist/social/Subdomain";
 import {Envelope as DomainEnvelope} from 'ddrp-indexer/dist/domain/Envelope';
@@ -40,6 +40,7 @@ import Jdenticon from '@dicebear/avatars-jdenticon-sprites';
 import {dotName, parseUsername, serializeUsername} from "../../util/user";
 import {extendFilter, Filter} from "../../util/filter";
 import {trackAttempt} from "../../util/matomo";
+import config from "../../../config.json";
 const appDataPath = './build';
 const dbPath = path.join(appDataPath, 'nomad.db');
 const pendingDbPath = path.join(appDataPath, 'pending.db');
@@ -80,7 +81,7 @@ export class IndexerManager {
   client: DDRPDClient;
   engine: SqliteEngine;
   pendingDB: SqliteEngine;
-  pgClient: PostgresAdapter;
+  pgClient?: PostgresAdapter;
   dbPath: string;
   pendingDbPath: string;
   resourcePath: string;
@@ -89,13 +90,10 @@ export class IndexerManager {
     const client = new DDRPDClient('127.0.0.1:9098');
     this.client = client;
 
-    this.pgClient = new PostgresAdapter({
-      user: 'postgres',
-      password: 'dev',
-      host: '35.236.69.44',
-      database: 'postgres',
-      port: 5432,
-    });
+    if (config.postgres?.host) {
+      this.pgClient = new PostgresAdapter(config.postgres);
+    }
+
     this.engine = new SqliteEngine(opts?.dbPath || dbPath);
     this.pendingDB = new SqliteEngine(opts?.pendingDbPath || pendingDbPath);
     this.dbPath = opts?.dbPath || dbPath;
@@ -348,6 +346,9 @@ export class IndexerManager {
   };
 
   getPostByHash = async (refhash: string): Promise<DomainEnvelope<DomainPost> | null>  => {
+    if (this.pgClient) {
+      return this.pgClient.getPostByRefhashTags(refhash, true);
+    }
     return this.postsDao!.getPostByRefhash(refhash);
   };
 
@@ -739,6 +740,7 @@ export class IndexerManager {
   };
 
   getPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (this.pgClient) return this.pgClient.getPosts(order, limit, defaultOffset);
     const envelopes: DomainEnvelope<DomainPost>[] = [];
     const offset = defaultOffset || 0;
 
@@ -1042,7 +1044,7 @@ export class IndexerManager {
     });
   };
 
-  insertPost = async (tld: string, wire: WireEnvelope, subdomains: SubdomainDBRow[] = []): Promise<any> => {
+  insertPost = async (tld: string, wire: WireEnvelope, subdomains: SubdomainDBRow[] = [], _client?: any): Promise<any> => {
     const nameIndex = wire.nameIndex;
     const subdomain = subdomains[nameIndex];
 
@@ -1067,21 +1069,21 @@ export class IndexerManager {
 
       switch (message.type.toString('utf-8')) {
         case Post.TYPE.toString('utf-8'):
-          await this.pgClient.insertPost(domainEnvelope as DomainEnvelope<DomainPost>);
-          // await this.postsDao?.insertPost(domainEnvelope as DomainEnvelope<DomainPost>);
-          return;
+          return this.pgClient
+            ? await this.pgClient.insertPost(domainEnvelope as DomainEnvelope<DomainPost>, _client)
+            : await this.postsDao?.insertPost(domainEnvelope as DomainEnvelope<DomainPost>);
         case Connection.TYPE.toString('utf-8'):
-          await this.pgClient.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>)
-          // await this.connectionsDao?.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>);
-          return;
+          return this.pgClient
+            ? await this.pgClient.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>, _client)
+            : await this.connectionsDao?.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>);
         case Moderation.TYPE.toString('utf-8'):
-          await this.pgClient.insertModeration(domainEnvelope as DomainEnvelope<DomainModeration>);
-          // await this.moderationsDao?.insertModeration(domainEnvelope as DomainEnvelope<DomainModeration>);
-          return;
+          return this.pgClient
+            ? await this.pgClient.insertModeration(domainEnvelope as DomainEnvelope<DomainModeration>, _client)
+            : await this.moderationsDao?.insertModeration(domainEnvelope as DomainEnvelope<DomainModeration>);
         case Media.TYPE.toString('utf-8'):
-          await this.pgClient.insertMedia(domainEnvelope as DomainEnvelope<DomainMedia>);
-          // await this.mediaDao?.insertMedia(domainEnvelope as DomainEnvelope<DomainMedia>);
-          return;
+          return this.pgClient
+            ? await this.pgClient.insertMedia(domainEnvelope as DomainEnvelope<DomainMedia>, _client)
+            : await this.mediaDao?.insertMedia(domainEnvelope as DomainEnvelope<DomainMedia>);
         default:
           return;
       }
@@ -1253,7 +1255,7 @@ export class IndexerManager {
       await this.scanSubdomainData(r, tld);
       return new Promise((resolve, reject) => {
         timeout = setTimeout(() => resolve(offset), 5000);
-        iterateAllEnvelopes(r, (err, env) => {
+        asyncIterateAllEnvelopes(r, async (err, env) => {
           if (timeout) clearTimeout(timeout);
 
           if (err) {
@@ -1276,7 +1278,7 @@ export class IndexerManager {
       const newBR = new BufferedReader(new BlobReader(tld, this.client), 4 * 1024 * 1024 - 5);
       return new Promise((resolve, reject) => {
         timeout = setTimeout(() => resolve(offset), 5000);
-        iterateAllEnvelopes(newBR, (err, env) => {
+        asyncIterateAllEnvelopes(newBR, async (err, env) => {
           if (timeout) clearTimeout(timeout);
 
           if (err) {
@@ -1369,6 +1371,7 @@ export class IndexerManager {
         resolve();
       }, 500);
 
+
       iterateAllSubdomains(r, (err, sub) => {
         if (timeout) clearTimeout(timeout);
 
@@ -1399,17 +1402,18 @@ export class IndexerManager {
     });
   };
 
-  private scanBlobData = (r: BufferedReader, tld: string, subdomains: SubdomainDBRow[]) => {
+  private scanBlobData = async (r: BufferedReader, tld: string, subdomains: SubdomainDBRow[]) => {
     let timeout: any | undefined;
+    let client: any;
 
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       logger.info(`scan blob data`, { tld });
 
       timeout = setTimeout(() => {
         resolve();
-      }, 500);
+      }, 10000);
 
-      iterateAllEnvelopes(r, (err, env) => {
+      await asyncIterateAllEnvelopes(r, async (err, env) => {
         if (timeout) clearTimeout(timeout);
 
         if (err) {
@@ -1423,7 +1427,7 @@ export class IndexerManager {
           return false;
         }
 
-        this.insertPost(tld, env, subdomains);
+        client = await this.insertPost(tld, env, subdomains);
 
         logger.info('scanned envelope', { tld, network_id: env.id });
 
@@ -1433,6 +1437,9 @@ export class IndexerManager {
 
         return true;
       });
+
+
+
     });
 
 
@@ -1480,10 +1487,8 @@ export class IndexerManager {
   }
 
   async streamAllBlobs(): Promise<void> {
-    await this.streamBlobInfo();
-
-    // const tlds = Object.keys(TLD_CACHE);
-    const tlds = ['9325']
+    const tlds = await this.readAllTLDs();
+    // const tlds = ['9325'];
 
     for (let i = 0; i < tlds.length; i = i + 1) {
       const selectedTLDs = tlds.slice(i, i + 1).filter(tld => !!tld);
