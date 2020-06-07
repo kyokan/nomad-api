@@ -938,7 +938,7 @@ export default class PostgresAdapter {
         blockers: 0,
       };
     }
-  }
+  };
 
   getMediaByHash = async (refhash: string): Promise<any|undefined> => {
     const client = await this.pool.connect();
@@ -956,5 +956,75 @@ export default class PostgresAdapter {
       logger.error('error getting media', e);
       client.release();
     }
-  }
+  };
+
+  queryTrendingTags = async (limit = 20, offset = 0): Promise<Pageable<{name: string; count: number; posterCount: number}, number>> => {
+    const ret: {name: string; count: number; posterCount: number}[] = [];
+    const client = await this.pool.connect();
+
+    try {
+      const {rows} = await client.query(`
+        SELECT t.name, COUNT(post_id) as count FROM tags_posts tp
+        JOIN tags t ON t.id = tp.tag_id
+        GROUP BY tag_id, t.name
+        ORDER BY count DESC LIMIT $1 OFFSET $2
+      `, [ limit, offset ]);
+
+      for (let i = 0; i < rows.length; i++ ) {
+        const row = rows[i];
+        const postersOfTags = await this.getPostersOfTag(row.name, client);
+        ret.push({
+          ...row,
+          posterCount: postersOfTags.length,
+        });
+      }
+
+      client.release();
+
+      if (!ret.length) {
+        return {
+          items: [],
+          next: -1,
+        };
+      }
+
+      return {
+        items: ret,
+        next: ret.length + Number(offset),
+      };
+    } catch (e) {
+      logger.error('error getting trending tags', e);
+      client.release();
+      return {
+        items: [],
+        next: -1,
+      };
+    }
+  };
+
+  private getPostersOfTag = async (tagName: string, _client?: PoolClient): Promise<{tld: string; subdomain: string; count: number}[]> => {
+    const client = _client || await this.pool.connect();
+    const sql = `
+      SELECT e.tld, e.subdomain
+      FROM posts p
+      JOIN envelopes e ON p.envelope_id = e.id
+      JOIN (tags_posts tp JOIN tags t ON t.id = tp.tag_id)
+      ON t.name = $1 AND p.id = tp.post_id AND (p.topic NOT LIKE '.%' OR p.topic is NULL)
+      GROUP BY e.tld, e.subdomain
+    `;
+    const params = [ tagName ];
+    const ret: { tld: string; subdomain: string; count: number}[] = [];
+
+    try {
+      const {rows} = await client.query(sql, params);
+
+      for (let i = 0; i < rows.length; i++) {
+        ret.push(rows[i]);
+      }
+
+      return ret;
+    } catch (e) {
+      return ret;
+    }
+  };
 }

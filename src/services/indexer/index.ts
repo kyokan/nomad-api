@@ -1158,6 +1158,8 @@ export class IndexerManager {
   };
 
   queryTrendingTags = async (limit = 20, offset = 0): Promise<Pageable<{name: string; count: number; posterCount: number}, number>> => {
+    if (this.pgClient) return this.pgClient.queryTrendingTags(limit, offset);
+
     const rows: {name: string; count: number; posterCount: number}[] = [];
 
     this.engine.each(`
