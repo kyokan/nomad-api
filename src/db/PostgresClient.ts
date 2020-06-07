@@ -8,6 +8,7 @@ import {
 } from 'ddrp-indexer/dist/domain/Connection';
 import {Moderation as DomainModeration} from 'ddrp-indexer/dist/domain/Moderation';
 import {Media as DomainMedia} from 'ddrp-indexer/dist/domain/Media';
+import logger from "../util/logger";
 
 type PostgresClientOpts = {
   user: string;
@@ -67,54 +68,55 @@ export default class PostgresClient {
         [env.refhash]
       );
 
-      if (exists) {
-        throw new Error(`${env.refhash} already exist`);
-      }
-      const envelopeId: number = await this.insertEnvelope(env, client);
-      const {
-        rows: [{id: postId}]
-      } = await client.query(`
+      if (!exists) {
+        const envelopeId: number = await this.insertEnvelope(env, client);
+        const {
+          rows: [{id: postId}]
+        } = await client.query(`
           INSERT INTO posts (envelope_id, body, title, reference, topic)
           VALUES ($1, $2, $3, $4, $5)
           RETURNING id
     `, [
-        envelopeId,
-        env.message.body,
-        env.message.title,
-        env.message.reference,
-        env.message.topic,
-      ]);
-      const seenTags: { [k: string]: boolean } = {};
-      for (const tag of env.message.tags) {
-        if (seenTags[tag]) {
-          continue;
-        }
-        seenTags[tag] = true;
+          envelopeId,
+          env.message.body,
+          env.message.title,
+          env.message.reference,
+          env.message.topic,
+        ]);
+        const seenTags: { [k: string]: boolean } = {};
+        for (const tag of env.message.tags) {
+          if (seenTags[tag]) {
+            continue;
+          }
+          seenTags[tag] = true;
 
-        await client.query(`
+          await client.query(`
           INSERT INTO tags (name)
           VALUES ($1)
           ON CONFLICT DO NOTHING
           RETURNING id
         `, [
-          tag,
-        ]);
+            tag,
+          ]);
 
-        const { rows } = await client.query('SELECT id FROM tags WHERE name = $1', [tag]);
+          const { rows } = await client.query('SELECT id FROM tags WHERE name = $1', [tag]);
 
-        if (rows.length) {
-          await client.query(`
+          if (rows.length) {
+            await client.query(`
           INSERT INTO tags_posts (tag_id, post_id)
           VALUES ($1, $2)
         `, [
-            rows[0].id,
-            postId,
-          ]);
+              rows[0].id,
+              postId,
+            ]);
+          }
         }
-      }
 
-      await this.handleReplies(env, 0, client);
+        await this.handleReplies(env, 0, client);
+      }
+      
       await client.query('COMMIT');
+
     } catch (e) {
       await client.query('ROLLBACK');
       throw e
