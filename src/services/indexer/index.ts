@@ -319,18 +319,19 @@ export class IndexerManager {
   };
 
   getUserBlocks = async (username: string, order: 'ASC' | 'DESC' = 'ASC', limit = 20, start = 0): Promise<Pageable<DomainBlock, number>> => {
+    if (this.pgClient) return this.pgClient.getUserConnectees(username, 'BLOCK', order, limit, start);
     const { tld, subdomain } = parseUsername(username);
     return this.connectionsDao!.getBlockees(tld, subdomain || '', limit, start);
   };
 
   getUserFollowings = async (username: string, order: 'ASC' | 'DESC' = 'ASC', limit = 20, start = 0): Promise<Pageable<DomainFollow, number>> => {
-    if (this.pgClient) return this.pgClient.getUserFollowings(username, order, limit, start);
+    if (this.pgClient) return this.pgClient.getUserConnectees(username, 'FOLLOW', order, limit, start);
     const { tld, subdomain } = parseUsername(username);
     return this.connectionsDao!.getFollowees(tld, subdomain || '', limit, start);
   };
 
   getUserFollowers = async (username: string, order: 'ASC' | 'DESC' = 'ASC', limit = 20, start = 0): Promise<Pageable<DomainFollow, number>> => {
-    if (this.pgClient) return this.pgClient.getUserFollowers(username, order, limit, start);
+    if (this.pgClient) return this.pgClient.getUserConnecters(username, 'FOLLOW', order, limit, start);
     const { tld, subdomain } = parseUsername(username);
     return this.connectionsDao!.getFollowers(tld, subdomain || '', limit, start);
   };
@@ -665,6 +666,8 @@ export class IndexerManager {
   };
 
   getUserProfile = async (username: string): Promise<UserProfile> => {
+    if (this.pgClient) return this.pgClient.getUserProfile(username);
+
     const profilePicture = await this.getUserProfilePicture(username) || '';
     const coverImage = await this.getUserCoverImage(username) || '';
     const bio = await this.getUserBio(username) || '';

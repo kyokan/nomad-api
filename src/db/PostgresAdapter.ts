@@ -11,7 +11,8 @@ import {Media as DomainMedia} from 'ddrp-indexer/dist/domain/Media';
 import {Pageable} from 'ddrp-indexer/dist/dao/Pageable';
 import logger from "../util/logger";
 import {extendFilter, Filter} from "../util/filter";
-import {parseUsername} from "../util/user";
+import {dotName, parseUsername} from "../util/user";
+import {UserProfile} from "../constants";
 
 type PostgresAdapterOpts = {
   user: string;
@@ -694,7 +695,7 @@ export default class PostgresAdapter {
     }
   };
 
-  getUserFollowings = async (username: string, order: 'ASC' | 'DESC' = 'ASC', limit = 20, start = 0): Promise<Pageable<DomainFollow, number>> => {
+  getUserConnectees = async (username: string, type: 'FOLLOW' | 'BLOCK', order: 'ASC' | 'DESC' = 'ASC', limit = 20, start = 0): Promise<Pageable<DomainFollow, number>> => {
     const { tld, subdomain } = parseUsername(username);
     const client = await this.pool.connect();
 
@@ -707,7 +708,7 @@ export default class PostgresAdapter {
         SELECT c.id, c.tld, c.subdomain
         FROM connections c
            JOIN envelopes e ON c.envelope_id = e.id
-        WHERE e.tld = $1 AND e.subdomain = $2 AND c.id > $3 AND c.connection_type = 'FOLLOW'
+        WHERE e.tld = $1 AND e.subdomain = $2 AND c.id > $3 AND c.connection_type = $5
         ORDER BY c.id ASC
         LIMIT $4
       `, [
@@ -715,6 +716,7 @@ export default class PostgresAdapter {
         subdomain,
         start,
         limit,
+        type,
       ]);
 
       client.release();
@@ -740,7 +742,7 @@ export default class PostgresAdapter {
     }
   };
 
-  getUserFollowers = async (username: string, order: 'ASC' | 'DESC' = 'ASC', limit = 20, start = 0): Promise<Pageable<DomainFollow, number>> => {
+  getUserConnecters = async (username: string, type: 'FOLLOW' | 'BLOCK', order: 'ASC' | 'DESC' = 'ASC', limit = 20, start = 0): Promise<Pageable<DomainFollow, number>> => {
     const { tld, subdomain } = parseUsername(username);
     const client = await this.pool.connect();
 
@@ -753,7 +755,7 @@ export default class PostgresAdapter {
         SELECT c.id, c.tld, c.subdomain
         FROM connections c
            JOIN envelopes e ON c.envelope_id = e.id
-        WHERE c.tld = $1 AND c.subdomain = $2 AND c.id > $3 AND c.connection_type = 'FOLLOW'
+        WHERE c.tld = $1 AND c.subdomain = $2 AND c.id > $3 AND c.connection_type = $5
         ORDER BY c.id ASC
         LIMIT $4
       `, [
@@ -761,6 +763,7 @@ export default class PostgresAdapter {
         subdomain,
         start,
         limit,
+        type,
       ]);
 
       client.release();
@@ -785,4 +788,99 @@ export default class PostgresAdapter {
       return new Pageable<DomainFollow, number>([], -1);
     }
   };
+
+  getUserData = async (username: string, topic: string, client: PoolClient): Promise<string> => {
+    const { tld, subdomain } = parseUsername(username);
+    const {rows} = await client.query(`
+        SELECT e.created_at, p.body FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+        WHERE tld = $1 AND subdomain = $2 AND topic = $3 ORDER BY e.created_at DESC
+      `, [
+      tld,
+      subdomain,
+      topic,
+    ]);
+
+    return rows.length ? rows[0].body : '';
+  };
+
+  getUserConnecteesStats = async (username: string, client: PoolClient): Promise<any> => {
+    const { tld, subdomain } = parseUsername(username);
+    const {rows} = await client.query(`
+        SELECT c.connection_type
+        FROM connections c
+           JOIN envelopes e ON c.envelope_id = e.id
+        WHERE e.tld = $1 AND e.subdomain = $2
+      `, [
+      tld,
+      subdomain,
+    ]);
+
+    return rows.reduce((acc, row) => {
+      acc[row?.connection_type] = acc[row?.connection_type] || 0;
+      acc[row?.connection_type]++;
+      return acc;
+    }, {});
+  };
+
+  getUserConnectersStats = async (username: string, client: PoolClient): Promise<any> => {
+    const { tld, subdomain } = parseUsername(username);
+    const {rows} = await client.query(`
+        SELECT c.connection_type
+        FROM connections c
+           JOIN envelopes e ON c.envelope_id = e.id
+        WHERE c.tld = $1 AND c.subdomain = $2
+      `, [
+      tld,
+      subdomain,
+    ]);
+
+    return rows.reduce((acc, row) => {
+      acc[row?.connection_type] = acc[row?.connection_type] || 0;
+      acc[row?.connection_type]++;
+      return acc;
+    }, {});
+  };
+
+  getUserProfile = async (username: string): Promise<UserProfile> => {
+    const client = await this.pool.connect();
+
+    try {
+      const displayName = await this.getUserData(username, '.display_name', client);
+      const profilePicture = await this.getUserData(username, '.profile_picture_refhash', client);
+      const coverImage = await this.getUserData(username, '.cover_image_refhash', client);
+      const bio = await this.getUserData(username, '.user_bio', client);
+      const avatarType = await this.getUserData(username, '.avatar_type', client);
+      const {FOLLOW: followings, BLOCK: blockings} = await this.getUserConnecteesStats(username, client);
+      const {FOLLOW: followers, BLOCK: blockers} = await this.getUserConnectersStats(username, client);
+
+      client.release();
+
+      return {
+        profilePicture,
+        coverImage,
+        bio,
+        avatarType,
+        displayName,
+        followings,
+        followers,
+        blockings,
+        blockers,
+      };
+
+    } catch (e) {
+      logger.error('error getting comments', e);
+      client.release();
+      return {
+        profilePicture: '',
+        coverImage: '',
+        bio: '',
+        avatarType: '',
+        displayName: '',
+        followings: 0,
+        followers: 0,
+        blockings: 0,
+        blockers: 0,
+      };
+    }
+  }
 }
