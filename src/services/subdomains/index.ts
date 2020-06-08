@@ -36,7 +36,7 @@ import secp256k1 from 'secp256k1';
 import {IndexerManager} from "../indexer";
 import {promisify} from "util";
 import {parseUsername, serializeUsername} from "../../util/user";
-import {createSessionKey, hashPassword, hashString, verifySessionKey} from "../../util/key";
+import {createSessionKey, hashPassword} from "../../util/key";
 import PostgresAdapter from "../../db/PostgresAdapter";
 
 export type SubdomainDBRow = {
@@ -204,7 +204,7 @@ export class SubdomainManager {
     } = req.body;
 
     const sessionToken = req.headers['x-api-token'];
-    const sessionName = await verifySessionKey(sessionToken);
+    const sessionName = await this.verifySession(sessionToken);
 
     const { tld: sessionTLD, subdomain: sessionSubdomain } = parseUsername(sessionName);
     const { tld: signedTLD, subdomain: signedSubdomain, signature } = sig || {};
@@ -224,11 +224,11 @@ export class SubdomainManager {
       const nameIndex = await this.getNameIndex(subdomain, tld);
 
       if (!nameIndex) {
-        return res.status(403).send(makeResponse('cannot find subdomain'));
+        return res.status(403).send(makeResponse('cannot find subdomain', true));
       }
 
       if (!body) {
-        return res.status(400).send(makeResponse('invalid request'));
+        return res.status(400).send(makeResponse('invalid request', true));
       }
 
       const createAt = timestamp ? new Date(timestamp) : new Date();
@@ -264,7 +264,7 @@ export class SubdomainManager {
       });
 
       if (!env) {
-        return res.status(403).send(makeResponse('invalid post'));
+        return res.status(403).send(makeResponse('invalid post', true));
       }
 
       const subs = await this.getSubdomainByTLD(tld);
@@ -298,7 +298,7 @@ export class SubdomainManager {
     } = req.body;
 
     const sessionToken = req.headers['x-api-token'];
-    const sessionName = await verifySessionKey(sessionToken);
+    const sessionName = await this.verifySession(sessionToken);
     const { tld: sessionTLD, subdomain: sessionSubdomain } = parseUsername(sessionName);
     const { tld: signedTLD, subdomain: signedSubdomain, signature } = sig || {};
     const tld = signedTLD || sessionTLD;
@@ -311,11 +311,11 @@ export class SubdomainManager {
       const nameIndex = await this.getNameIndex(subdomain, tld);
 
       if (!nameIndex) {
-        return res.status(403).send(makeResponse('cannot find subdomain'));
+        return res.status(403).send(makeResponse('cannot find subdomain', true));
       }
 
       if (!reference) {
-        return res.status(400).send(makeResponse('invalid reqest'));
+        return res.status(400).send(makeResponse('invalid reqest', true));
       }
 
       if (!sessionName) {
@@ -330,10 +330,10 @@ export class SubdomainManager {
           );
 
           if (!verfied) {
-            return res.status(403).send(makeResponse('not authorized'));
+            return res.status(403).send(makeResponse('not authorized', true));
           }
         } else {
-          return res.status(403).send(makeResponse('not authorized'));
+          return res.status(403).send(makeResponse('not authorized', true));
         }
       }
 
@@ -348,7 +348,7 @@ export class SubdomainManager {
       });
 
       if (!env) {
-        return res.status(403).send(makeResponse('invalid post'));
+        return res.status(403).send(makeResponse('invalid post', true));
       }
 
       const subs = await this.getSubdomainByTLD(tld);
@@ -381,7 +381,7 @@ export class SubdomainManager {
     } = req.body;
 
     const sessionToken = req.headers['x-api-token'];
-    const sessionName = await verifySessionKey(sessionToken);
+    const sessionName = await this.verifySession(sessionToken);
     const { tld: sessionTLD, subdomain: sessionSubdomain } = parseUsername(sessionName);
     const { tld: signedTLD, subdomain: signedSubdomain, signature } = sig || {};
     const tld = signedTLD || sessionTLD;
@@ -397,11 +397,11 @@ export class SubdomainManager {
       const nameIndex = await this.getNameIndex(subdomain, tld);
 
       if (!nameIndex) {
-        return res.status(403).send(makeResponse('cannot find subdomain'));
+        return res.status(403).send(makeResponse('cannot find subdomain', true));
       }
 
       if (!connectee_tld) {
-        return res.status(400).send(makeResponse('invalid request'));
+        return res.status(400).send(makeResponse('invalid request', true));
       }
 
       if (!sessionName) {
@@ -416,10 +416,10 @@ export class SubdomainManager {
           );
 
           if (!verfied) {
-            return res.status(403).send(makeResponse('not authorized'));
+            return res.status(403).send(makeResponse('not authorized', true));
           }
         } else {
-          return res.status(403).send(makeResponse('not authorized'));
+          return res.status(403).send(makeResponse('not authorized', true));
         }
       }
 
@@ -431,7 +431,7 @@ export class SubdomainManager {
       });
 
       if (!env) {
-        return res.status(403).send(makeResponse('invalid post'));
+        return res.status(403).send(makeResponse('invalid post', true));
       }
 
       const subs = await this.getSubdomainByTLD(tld);
@@ -465,7 +465,7 @@ export class SubdomainManager {
     } = req.body;
 
     const sessionToken = req.headers['x-api-token'];
-    const sessionName = await verifySessionKey(sessionToken);
+    const sessionName = await this.verifySession(sessionToken);
     const { tld: sessionTLD, subdomain: sessionSubdomain } = parseUsername(sessionName);
     const tld = signedTLD || sessionTLD;
     const subdomain = signedSubdomain || sessionSubdomain;
@@ -475,7 +475,7 @@ export class SubdomainManager {
     const file = files.file;
 
     if (!file) {
-      return res.status(400).send(makeResponse('invalid request'));
+      return res.status(400).send(makeResponse('invalid request', true));
     }
 
     const mediaBody: MediaBody = {
@@ -489,7 +489,7 @@ export class SubdomainManager {
       const nameIndex = await this.getNameIndex(subdomain, tld);
 
       if (!nameIndex) {
-        return res.status(403).send(makeResponse('cannot find subdomain'));
+        return res.status(403).send(makeResponse('cannot find subdomain', true));
       }
 
       if (!sessionName) {
@@ -504,10 +504,10 @@ export class SubdomainManager {
           );
 
           if (!verfied) {
-            return res.status(403).send(makeResponse('not authorized'));
+            return res.status(403).send(makeResponse('not authorized', true));
           }
         } else {
-          return res.status(403).send(makeResponse('not authorized'));
+          return res.status(403).send(makeResponse('not authorized', true));
         }
       }
 
@@ -519,7 +519,7 @@ export class SubdomainManager {
       });
 
       if (!env) {
-        return res.status(400).send(makeResponse('invalid post'));
+        return res.status(400).send(makeResponse('invalid post', true));
       }
       //
       const subs = await this.getSubdomainByTLD(tld);
@@ -563,6 +563,9 @@ export class SubdomainManager {
 
       const expiry = Date.now() + (1000 * 60 * 60 * 24);
       const sessionKey = await createSessionKey(username, expiry);
+
+      await this.addSession(username, sessionKey, expiry);
+
       res.send(makeResponse({
         token: sessionKey,
         expiry,
@@ -571,6 +574,31 @@ export class SubdomainManager {
       res.status(500).send(makeResponse(e.message, true));
     }
   };
+
+  async verifySession(sessionKey?: string | string[]): Promise<string> {
+    if (typeof sessionKey !== 'string') return '';
+    if (this.pgClient) return this.pgClient.verifyUserSession(sessionKey);
+    throw new Error('cannot find postgres client');
+  }
+
+  async addSession(username: string, token: string, expiry: number): Promise<void> {
+    const { tld, subdomain } = parseUsername(username);
+
+    if (!subdomain) {
+      throw new Error('invalid username');
+    }
+
+    if (this.pgClient) {
+      return this.pgClient.updateUserSession(
+        token,
+        expiry,
+        tld,
+        subdomain,
+      );
+    }
+
+    throw new Error('cannot find postgres client');
+  }
 
   setRoutes(app: Express) {
     app.post('/subdomains/posts', jsonParser, this.handleSubdomainPost);

@@ -12,7 +12,7 @@ import blake2b from 'blake2b';
 import redis from "redis";
 import logger from "./logger";
 import {promisify} from "util";
-const client = redis.createClient();
+const client = redis.createClient(config.redis);
 import bcrypt from "bcrypt";
 
 
@@ -43,12 +43,6 @@ export function decrypt(ciphertext: string, password: string): string {
 export async function createSessionKey(username: string, ttl: number): Promise<string> {
   const bytes = secureRandom(32);
   const sessionkey = Buffer.from(bytes).toString('hex');
-
-  // @ts-ignore
-  await setAsync(username, sessionkey, 'EX', ttl);
-  // @ts-ignore
-  await setAsync(sessionkey, username, 'EX', ttl);
-
   return sessionkey;
 }
 

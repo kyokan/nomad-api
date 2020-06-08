@@ -289,6 +289,49 @@ export default class PostgresAdapter {
     }
   }
 
+  async verifyUserSession (token: string): Promise<string>  {
+    const client = await this.pool.connect();
+
+    try {
+      const {rows} = await client.query(`
+        SELECT session_expiry, name, tld from users
+        WHERE session_token = $1
+      `, [token]);
+
+      if (rows.length && Number(rows[0].session_expiry) > Date.now()) {
+        return `${rows[0].name}.${rows[0].tld}`;
+      }
+      return '';
+    } catch (e) {
+      client.release();
+      return '';
+    }
+  }
+
+  async updateUserSession (token: string, expiry: number, tld: string, subdomain: string): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      await client.query(`
+        UPDATE users SET session_token = $1 
+        WHERE tld = $2 AND name = $3
+      `, [token, tld, subdomain]);
+
+      await client.query(`
+        UPDATE users SET session_expiry = $1 
+        WHERE tld = $2 AND name = $3
+      `, [expiry, tld, subdomain]);
+
+      await client.query('COMMIT');
+      client.release();
+    } catch (e) {
+      await client.query('ROLLBACK');
+      client.release();
+      throw e
+    }
+  }
+
   async getPostByRefhashTags (refhash: string, includeTags: boolean, _client?: PoolClient): Promise<DomainEnvelope<DomainPost> | null> {
     const client = _client || await this.pool.connect();
     const { rows } = await client.query(`
@@ -1115,6 +1158,15 @@ export default class PostgresAdapter {
       const tldData = config.signers[tld];
 
       if (!tldData || !tldData.privateKey) throw new Error(`cannot find singer for ${tld}`);
+
+      const {rows: [{exists}]} = await client.query(
+        'SELECT EXISTS(SELECT 1 FROM users WHERE tld = $1 AND name = $2)',
+        [tld, subdomain]
+      );
+
+      if (exists) {
+        throw new Error(`${subdomain}.${tld} already exists`);
+      }
 
       await client.query(`
         INSERT INTO users (name, public_key, tld, email, password)
