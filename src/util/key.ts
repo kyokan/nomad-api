@@ -6,23 +6,11 @@ const ECKey = require('eckey');
 const secureRandom = require('secure-random');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 import CryptoJS from 'crypto-js';
-import config from "../../config.json";
 // @ts-ignore
 import blake2b from 'blake2b';
-import redis from "redis";
 import logger from "./logger";
-import {promisify} from "util";
-const client = redis.createClient(config.redis);
 import bcrypt from "bcrypt";
 
-
-client.on("error", function(error) {
-  logger.error(error);
-});
-
-const getAsync = promisify(client.get).bind(client);
-const setAsync = promisify(client.set).bind(client);
-const ttlAsync = promisify(client.ttl).bind(client);
 
 
 export function generateNewCompressedKey(): typeof ECKey {
@@ -44,11 +32,6 @@ export async function createSessionKey(username: string, ttl: number): Promise<s
   const bytes = secureRandom(32);
   const sessionkey = Buffer.from(bytes).toString('hex');
   return sessionkey;
-}
-
-export async function verifySessionKey(key?: string | string[]): Promise<string> {
-  if (!key || typeof key !== 'string') return '';
-  return await getAsync(key) || '';
 }
 
 export function hashString(text: string): string {
