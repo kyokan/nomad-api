@@ -4,6 +4,7 @@ import {makeResponse} from "../../util/rest";
 import logger from "../../util/logger";
 import fs from "fs";
 const requestIp = require('request-ip');
+const fileUpload = require('express-fileupload');
 const port = process.env.PORT || 8082;
 
 let docsHTML: string;
@@ -27,6 +28,7 @@ export class RestServer {
     this.app = express();
     this.app.use(cors(corsOptions));
     this.app.use(requestIp.mw());
+    this.app.use(fileUpload());
     this.app.use('/', express.static('./build'));
     this.app.use('/docs', express.static('./build-doc'));
     this.app.use(async (req, res, next) => {
@@ -53,6 +55,7 @@ export class RestServer {
               <title>Nomad Explorer</title>
             </head>
             <body>
+              <input type="file" id="fileupload" value="Select File" />
               <script src="http://localhost:${port}/harness.js"></script>
             </body>
           </html>
@@ -60,7 +63,9 @@ export class RestServer {
       });
     }
 
-    this.app.get('/health', (req, res) => res.send(makeResponse('ok')));
+    this.app.get('/health', (req, res) => {
+      res.send(makeResponse('ok'))
+    });
   }
 
   start() {

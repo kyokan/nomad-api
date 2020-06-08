@@ -1,7 +1,7 @@
 import DDRPDClient from "ddrp-js/dist/ddrp/DDRPDClient";
 import {BufferedReader} from "ddrp-js/dist/io/BufferedReader";
 import {BlobReader} from "ddrp-js/dist/ddrp/BlobReader";
-import {iterateAllEnvelopes, isSubdomainBlob, iterateAllSubdomains} from "ddrp-js/dist/social/streams";
+import {asyncIterateAllEnvelopes, isSubdomainBlob, iterateAllSubdomains} from "ddrp-js/dist/social/streams";
 import {Envelope as WireEnvelope} from "ddrp-js/dist/social/Envelope";
 import {Subdomain} from "ddrp-js/dist/social/Subdomain";
 import {Envelope as DomainEnvelope} from 'ddrp-indexer/dist/domain/Envelope';
@@ -40,12 +40,14 @@ import Jdenticon from '@dicebear/avatars-jdenticon-sprites';
 import {dotName, parseUsername, serializeUsername} from "../../util/user";
 import {extendFilter, Filter} from "../../util/filter";
 import {trackAttempt} from "../../util/matomo";
+import config from "../../../config.json";
 const appDataPath = './build';
 const dbPath = path.join(appDataPath, 'nomad.db');
-const namedbPath = path.join(appDataPath, 'names.db');
 const pendingDbPath = path.join(appDataPath, 'pending.db');
 import {mapWireToEnvelope} from "../../util/envelope";
 import crypto from 'crypto';
+import {SubdomainDBRow} from "../subdomains";
+import PostgresAdapter from "../../db/PostgresAdapter";
 
 const SPRITE_TO_SPRITES: {[sprite: string]: any} = {
   identicon: Identicon,
@@ -78,37 +80,31 @@ export class IndexerManager {
   mediaDao?: MediaDAOImpl;
   client: DDRPDClient;
   engine: SqliteEngine;
-  nameDB: SqliteEngine;
   pendingDB: SqliteEngine;
+  pgClient?: PostgresAdapter;
   dbPath: string;
-  namedbPath: string;
   pendingDbPath: string;
   resourcePath: string;
 
-  constructor(opts?: { dbPath?: string; namedbPath?: string; resourcePath?: string; pendingDbPath?: string }) {
+  constructor(opts?: {
+    dbPath?: string;
+    namedbPath?: string;
+    resourcePath?: string;
+    pendingDbPath?: string;
+    pgClient?: PostgresAdapter;
+  }) {
     const client = new DDRPDClient('127.0.0.1:9098');
     this.client = client;
+
+    this.pgClient = opts?.pgClient;
     this.engine = new SqliteEngine(opts?.dbPath || dbPath);
-    this.nameDB = new SqliteEngine(opts?.namedbPath || namedbPath);
     this.pendingDB = new SqliteEngine(opts?.pendingDbPath || pendingDbPath);
     this.dbPath = opts?.dbPath || dbPath;
-    this.namedbPath = opts?.namedbPath || namedbPath;
     this.pendingDbPath = opts?.pendingDbPath || pendingDbPath;
     this.resourcePath = opts?.resourcePath || 'resources';
   }
 
   handlers = {
-    '/pending/posts': async (req: Request, res: Response) => {
-      trackAttempt('Get All Posts', req);
-      try {
-        const { order, offset, limit } = req.query || {};
-        const posts = await this.getPendingPosts(order, limit, offset);
-        res.send(makeResponse(posts));
-      } catch (e) {
-        res.status(500).send(makeResponse(e.message, true));
-      }
-    },
-
     '/posts': async (req: Request, res: Response) => {
       trackAttempt('Get All Posts', req);
       try {
@@ -305,7 +301,6 @@ export class IndexerManager {
   };
 
   setRoutes = (app: Express) => {
-    app.get('/pending/posts', this.handlers['/pending/posts']);
     app.get('/posts', this.handlers['/posts']);
     app.get('/posts/:hash', this.handlers['/posts/:hash']);
     app.get('/posts/:hash/comments', this.handlers['/posts/:hash/comments']);
@@ -327,25 +322,33 @@ export class IndexerManager {
   };
 
   getUserBlocks = async (username: string, order: 'ASC' | 'DESC' = 'ASC', limit = 20, start = 0): Promise<Pageable<DomainBlock, number>> => {
+    if (this.pgClient) return this.pgClient.getUserConnectees(username, 'BLOCK', order, limit, start);
     const { tld, subdomain } = parseUsername(username);
     return this.connectionsDao!.getBlockees(tld, subdomain || '', limit, start);
   };
 
   getUserFollowings = async (username: string, order: 'ASC' | 'DESC' = 'ASC', limit = 20, start = 0): Promise<Pageable<DomainFollow, number>> => {
+    if (this.pgClient) return this.pgClient.getUserConnectees(username, 'FOLLOW', order, limit, start);
     const { tld, subdomain } = parseUsername(username);
     return this.connectionsDao!.getFollowees(tld, subdomain || '', limit, start);
   };
 
   getUserFollowers = async (username: string, order: 'ASC' | 'DESC' = 'ASC', limit = 20, start = 0): Promise<Pageable<DomainFollow, number>> => {
+    if (this.pgClient) return this.pgClient.getUserConnecters(username, 'FOLLOW', order, limit, start);
     const { tld, subdomain } = parseUsername(username);
     return this.connectionsDao!.getFollowers(tld, subdomain || '', limit, start);
   };
 
   getPostByHash = async (refhash: string): Promise<DomainEnvelope<DomainPost> | null>  => {
+    if (this.pgClient) {
+      return this.pgClient.getPostByRefhashTags(refhash, true);
+    }
     return this.postsDao!.getPostByRefhash(refhash);
   };
 
   getPostsByFilter = async (f: Filter, order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (this.pgClient) return this.pgClient.getPostsByFilter(f, order, limit, defaultOffset);
+
     const envelopes: DomainEnvelope<DomainPost>[] = [];
     const {
       postedBy,
@@ -471,6 +474,10 @@ export class IndexerManager {
   };
 
   getCommentsByHash = async (reference: string | null, order?: 'ASC' | 'DESC', limit = 20,  defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (this.pgClient) {
+      return this.pgClient.getCommentsByHash(reference, order, limit, defaultOffset);
+    }
+
     const envelopes: DomainEnvelope<DomainPost>[] = [];
     const offset = order === 'ASC'
       ? defaultOffset || 0
@@ -501,6 +508,8 @@ export class IndexerManager {
   };
 
   private getMediaByHash = async (refhash: string): Promise<any|undefined> => {
+    if (this.pgClient) return this.pgClient.getMediaByHash(refhash);
+
     const row = this.engine.first(`
       SELECT e.created_at, m.filename, m.mime_type, m.content
       FROM media m JOIN envelopes e ON m.envelope_id = e.id
@@ -662,6 +671,8 @@ export class IndexerManager {
   };
 
   getUserProfile = async (username: string): Promise<UserProfile> => {
+    if (this.pgClient) return this.pgClient.getUserProfile(username);
+
     const profilePicture = await this.getUserProfilePicture(username) || '';
     const coverImage = await this.getUserCoverImage(username) || '';
     const bio = await this.getUserBio(username) || '';
@@ -733,6 +744,7 @@ export class IndexerManager {
   };
 
   getPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (this.pgClient) return this.pgClient.getPosts(order, limit, defaultOffset);
     const envelopes: DomainEnvelope<DomainPost>[] = [];
     const offset = defaultOffset || 0;
 
@@ -760,19 +772,154 @@ export class IndexerManager {
     );
   };
 
+  async getUserMedia (username: string): Promise<DomainEnvelope<DomainMedia>[]> {
+    const { tld, subdomain } = parseUsername(username);
+
+    const envelopes: DomainEnvelope<DomainMedia>[] = [];
+
+    if (subdomain) return envelopes;
+
+    this.engine.each(`
+      SELECT e.id as envelope_id, m.id as media_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
+        m.filename, m.mime_type, m.content
+      FROM media m JOIN envelopes e ON m.envelope_id = e.id
+      WHERE e.tld = @tld
+    `, { tld, subdomain }, row => {
+      envelopes.push(new DomainEnvelope<DomainMedia>(
+        row.envelope_id,
+        row.tld,
+        row.subdomain,
+        row.network_id,
+        row.refhash,
+        new Date(row.created_at * 1000),
+        new DomainMedia(
+          row.media_id,
+          row.filename,
+          row.mime_type,
+          row.content,
+        ),
+        null
+      ));
+    });
+
+    return envelopes;
+  }
+
+  async getUserConnections (username: string): Promise<DomainEnvelope<DomainConnection>[]> {
+    const { tld, subdomain } = parseUsername(username);
+
+    const envelopes: DomainEnvelope<DomainConnection>[] = [];
+
+    if (subdomain) return envelopes;
+
+    this.engine.each(`
+      SELECT e.id as envelope_id, c.id as connection_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
+        c.tld as connection_tld, c.subdomain as connection_subdomain, c.connection_type
+      FROM connections c JOIN envelopes e ON c.envelope_id = e.id
+      WHERE e.tld = @tld
+    `, { tld, subdomain }, row => {
+      // if (!row.connection_subdomain) return;
+
+      envelopes.push(new DomainEnvelope<DomainConnection>(
+        row.envelope_id,
+        row.tld,
+        row.subdomain,
+        row.network_id,
+        row.refhash,
+        new Date(row.created_at * 1000),
+        new DomainConnection(
+          row.connection_id,
+          row.connection_tld,
+          row.connection_subdomain,
+          row.connection_type,
+        ),
+        null
+      ));
+    });
+
+    return envelopes;
+  }
+
+  async getUserModerations (username: string): Promise<DomainEnvelope<DomainModeration>[]> {
+    const { tld, subdomain } = parseUsername(username);
+
+    const envelopes: DomainEnvelope<DomainModeration>[] = [];
+
+    if (subdomain) return envelopes;
+
+    this.engine.each(`
+      SELECT e.id as envelope_id, m.id as moderation_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
+        m.reference, m.moderation_type
+      FROM moderations m JOIN envelopes e ON m.envelope_id = e.id
+      WHERE e.tld = @tld
+    `, { tld, subdomain }, row => {
+      envelopes.push(new DomainEnvelope<DomainModeration>(
+        row.envelope_id,
+        row.tld,
+        row.subdomain,
+        row.network_id,
+        row.refhash,
+        new Date(row.created_at * 1000),
+        new DomainModeration(
+          row.moderation_id,
+          row.reference,
+          row.moderation_type,
+        ),
+        null
+      ));
+    });
+
+    return envelopes;
+  }
+
+  async getUserPosts (username: string): Promise<DomainEnvelope<DomainPost>[]> {
+    const { tld, subdomain } = parseUsername(username);
+
+    const envelopes: DomainEnvelope<DomainPost>[] = [];
+
+    if (subdomain) return envelopes;
+
+    this.engine.each(`
+      SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+              p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+      FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+      WHERE e.tld = @tld
+    `, { tld, subdomain }, row => {
+      envelopes.push(this.mapPost(row, true));
+    });
+
+    return envelopes;
+  }
+
+  async getUserEnvelopes (username: string, source: 'sqlite' | 'postgres' = 'sqlite'): Promise<DomainEnvelope<any>[]> {
+    if (source === "postgres" && this.pgClient) return this.pgClient?.getUserEnvelopes(username);
+
+    let envelopes: DomainEnvelope<any>[];
+
+    const posts = await this.getUserPosts(username);
+    const mods = await this.getUserModerations(username);
+    const conns = await this.getUserConnections(username);
+    const medias = await this.getUserMedia(username);
+    envelopes = [
+      ...mods,
+      ...conns,
+      ...medias,
+      ...posts,
+    ].sort((a, b) => {
+      if (a.createdAt > b.createdAt) return 1;
+      if (a.createdAt < b.createdAt) return -1;
+      return 0;
+    });
+    return envelopes;
+  }
 
   async getUserUploads (username: string, order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<any, number>> {
+    if (this.pgClient) return this.pgClient.getUserUploads(username, order, limit, defaultOffset);
+
     const { tld, subdomain } = parseUsername(username);
     const offset = defaultOffset || 0;
 
     const envelopes: any = [];
-
-    if (subdomain) {
-      return {
-        items: envelopes,
-        next: -1,
-      };
-    }
 
     this.engine.each(`
       SELECT e.id as envelope_id, m.id as media, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
@@ -904,11 +1051,11 @@ export class IndexerManager {
     });
   };
 
-  insertPost = async (tld: string, wire: WireEnvelope, subdomains: string[] = []): Promise<any> => {
+  insertPost = async (tld: string, wire: WireEnvelope, subdomains: SubdomainDBRow[] = [], _client?: any): Promise<any> => {
     const nameIndex = wire.nameIndex;
-    const subdomain = subdomains[nameIndex] || '';
+    const subdomain = subdomains[nameIndex];
 
-    if (subdomains.length && !subdomain) {
+    if (nameIndex > 0 && !subdomain) {
       logger.error(`cannot find subdomain`, {
         networkd_id: wire.id,
         tld: tld,
@@ -920,29 +1067,35 @@ export class IndexerManager {
     logger.info(`inserting message`, {
       networkd_id: wire.id,
       tld: tld,
-      subdomain: subdomain,
+      subdomain: subdomain?.name || '',
     });
 
     try {
       const message = wire.message;
-      const domainEnvelope = await mapWireToEnvelope(tld, subdomain, wire);
+      const domainEnvelope = await mapWireToEnvelope(tld, subdomain?.name || '', wire);
 
       switch (message.type.toString('utf-8')) {
         case Post.TYPE.toString('utf-8'):
-          await this.deletePendingPost(domainEnvelope.networkId);
-          await this.postsDao?.insertPost(domainEnvelope as DomainEnvelope<DomainPost>);
-          return;
+          return this.pgClient
+            ? await this.pgClient.insertPost(domainEnvelope as DomainEnvelope<DomainPost>, _client)
+            : await this.postsDao?.insertPost(domainEnvelope as DomainEnvelope<DomainPost>);
         case Connection.TYPE.toString('utf-8'):
-          return await this.connectionsDao?.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>);
+          return this.pgClient
+            ? await this.pgClient.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>, _client)
+            : await this.connectionsDao?.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>);
         case Moderation.TYPE.toString('utf-8'):
-          return await this.moderationsDao?.insertModeration(domainEnvelope as DomainEnvelope<DomainModeration>);
+          return this.pgClient
+            ? await this.pgClient.insertModeration(domainEnvelope as DomainEnvelope<DomainModeration>, _client)
+            : await this.moderationsDao?.insertModeration(domainEnvelope as DomainEnvelope<DomainModeration>);
         case Media.TYPE.toString('utf-8'):
-          return await this.mediaDao?.insertMedia(domainEnvelope as DomainEnvelope<DomainMedia>);
+          return this.pgClient
+            ? await this.pgClient.insertMedia(domainEnvelope as DomainEnvelope<DomainMedia>, _client)
+            : await this.mediaDao?.insertMedia(domainEnvelope as DomainEnvelope<DomainMedia>);
         default:
           return;
       }
     } catch (err) {
-      logger.error(`cannot insert message ${serializeUsername(subdomain, tld)}/${wire.id}`);
+      logger.error(`cannot insert message ${serializeUsername(subdomain?.name, tld)}/${wire.id}`);
       logger.error(err?.message);
     }
   };
@@ -1009,6 +1162,8 @@ export class IndexerManager {
   };
 
   queryTrendingTags = async (limit = 20, offset = 0): Promise<Pageable<{name: string; count: number; posterCount: number}, number>> => {
+    if (this.pgClient) return this.pgClient.queryTrendingTags(limit, offset);
+
     const rows: {name: string; count: number; posterCount: number}[] = [];
 
     this.engine.each(`
@@ -1038,6 +1193,8 @@ export class IndexerManager {
   };
 
   queryTrendingPosters = async (limit = 20, offset = 0): Promise<Pageable<{username: string; count: number}, number>> => {
+    if (this.pgClient) return this.pgClient.queryTrendingPosters(limit, offset);
+
     const rows: {username: string; count: number}[] = [];
 
     this.engine.each(`
@@ -1064,6 +1221,10 @@ export class IndexerManager {
   };
 
   scanMetadata = async (): Promise<any> => {
+    if (this.pgClient) {
+      return this.pgClient.scanMetadata();
+    }
+
     const commentCounts = await this.scanCommentCounts();
     const likeCounts = await this.scanLikeCounts();
 
@@ -1100,28 +1261,61 @@ export class IndexerManager {
   findNextOffset = async (tld: string): Promise<number> => {
     let offset = 0;
     let timeout: any;
-    const r = new BufferedReader(new BlobReader(tld, this.client), 1024 * 1024);
-    return new Promise((resolve, reject) => {
-      timeout = setTimeout(() => resolve(offset), 5000);
-      iterateAllEnvelopes(r, (err, env) => {
-        if (timeout) clearTimeout(timeout);
 
-        if (err) {
-          reject(err);
-          return false;
-        }
+    const br = new BlobReader(tld, this.client);
+    const r = new BufferedReader(br, 4 * 1024 * 1024 - 5);
+    const isSubdomain = await this.isSubdomainBlob(r);
 
-        if (env === null) {
-          resolve(offset);
-          return false;
-        }
+    if (isSubdomain) {
+      await this.scanSubdomainData(r, tld);
+      return new Promise((resolve, reject) => {
+        timeout = setTimeout(() => resolve(offset), 5000);
+        asyncIterateAllEnvelopes(r, async (err, env) => {
+          if (timeout) clearTimeout(timeout);
 
-        // @ts-ignore
-        offset = r.off;
-        timeout = setTimeout(() => resolve(offset), 100);
-        return true;
+          if (err) {
+            reject(err);
+            return false;
+          }
+
+          if (env === null) {
+            resolve(offset);
+            return false;
+          }
+
+          // @ts-ignore
+          offset = r.off;
+          timeout = setTimeout(() => resolve(offset), 100);
+          return true;
+        });
       });
-    });
+    } else {
+      const newBR = new BufferedReader(new BlobReader(tld, this.client), 4 * 1024 * 1024 - 5);
+      return new Promise((resolve, reject) => {
+        timeout = setTimeout(() => resolve(offset), 5000);
+        asyncIterateAllEnvelopes(newBR, async (err, env) => {
+          if (timeout) clearTimeout(timeout);
+
+          if (err) {
+            reject(err);
+            return false;
+          }
+
+          if (env === null) {
+            resolve(offset);
+            return false;
+          }
+
+          // @ts-ignore
+          offset = r.off;
+          timeout = setTimeout(() => resolve(offset), 100);
+          return true;
+        });
+      });
+    }
+
+
+
   };
 
   maybeStreamBlob = async (tld: string): Promise<void> => {
@@ -1138,7 +1332,7 @@ export class IndexerManager {
       // }
 
       const br = new BlobReader(tld, this.client);
-      const r = new BufferedReader(br, 4 * 1024 * 1024 - 5);
+      const r = new BufferedReader(br, 1024 * 1024);
       const isSubdomain = await this.isSubdomainBlob(r);
 
       if (isSubdomain) {
@@ -1156,7 +1350,7 @@ export class IndexerManager {
     }
   };
 
-  private isSubdomainBlob = (r: BufferedReader): Promise<boolean> => {
+  isSubdomainBlob = (r: BufferedReader): Promise<boolean> => {
     let timeout: any | undefined;
     return new Promise((resolve, reject) => {
       timeout = setTimeout(() => resolve(false), 5000);
@@ -1180,9 +1374,13 @@ export class IndexerManager {
     });
   };
 
-  private scanSubdomainData = (r: BufferedReader, tld: string): Promise<string[]> => {
+  scanSubdomainData = (r: BufferedReader, tld: string): Promise<SubdomainDBRow[]> => {
     let timeout: any | undefined;
-    const subdomains: string[] = [];
+    const subdomains: SubdomainDBRow[] = [{
+      name: '',
+      tld,
+    }];
+
     return new Promise((resolve, reject) => {
       logger.info(`scan subdomain data`, { tld });
       timeout = setTimeout(() => {
@@ -1203,16 +1401,15 @@ export class IndexerManager {
           return false;
         }
 
-        logger.info(`scanned subdomain data`, { name: sub.name, index: sub.index });
+        logger.info(`scanned subdomain data`, { name: sub?.name, index: sub?.index });
 
-        // this.insertOrUpdateSubdomain(
-        //   sub.index,
-        //   tld,
-        //   sub.publicKey.toString('hex'),
-        //   sub.name,
-        // );
 
-        subdomains[sub.index] = sub.name;
+        subdomains.push({
+          name: sub?.name || '',
+          tld,
+          public_key: sub?.publicKey?.toString('hex'),
+          email: '',
+        });
 
         timeout = setTimeout(() => resolve(subdomains), 500);
         return true;
@@ -1220,17 +1417,18 @@ export class IndexerManager {
     });
   };
 
-  private scanBlobData = (r: BufferedReader, tld: string, subdomains: string[]) => {
+  private scanBlobData = async (r: BufferedReader, tld: string, subdomains: SubdomainDBRow[]) => {
     let timeout: any | undefined;
+    let client: any;
 
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       logger.info(`scan blob data`, { tld });
 
       timeout = setTimeout(() => {
         resolve();
-      }, 500);
+      }, 10000);
 
-      iterateAllEnvelopes(r, (err, env) => {
+      await asyncIterateAllEnvelopes(r, async (err, env) => {
         if (timeout) clearTimeout(timeout);
 
         if (err) {
@@ -1244,7 +1442,7 @@ export class IndexerManager {
           return false;
         }
 
-        this.insertPost(tld, env, subdomains);
+        client = await this.insertPost(tld, env, subdomains);
 
         logger.info('scanned envelope', { tld, network_id: env.id });
 
@@ -1255,8 +1453,6 @@ export class IndexerManager {
         return true;
       });
     });
-
-
   };
 
   async start () {
@@ -1269,31 +1465,11 @@ export class IndexerManager {
     }
 
     await this.engine.open();
-    await this.nameDB.open();
     await this.pendingDB.open();
     this.postsDao = new PostsDAOImpl(this.engine);
     this.connectionsDao = new ConnectionsDAOImpl(this.engine);
     this.moderationsDao = new ModerationsDAOImpl(this.engine);
     this.mediaDao = new MediaDAOImpl(this.engine);
-  }
-
-  decodeBase64Image(dataString = ''): {
-    type: string;
-    data: Buffer;
-  } {
-    const matches = dataString
-      .replace('\n', '')
-      // eslint-disable-next-line no-useless-escape
-      .match(/^data:([A-Za-z-+\/]+);base64,(.+)$/) || [];
-
-    if (matches.length !== 3) {
-      throw new Error('Invalid input string');
-    }
-
-    return {
-      type: matches[1],
-      data: new Buffer(matches[2], 'base64'),
-    };
   }
 
   private async dbExists () {
@@ -1310,10 +1486,8 @@ export class IndexerManager {
 
   private async copyDB () {
     const nomadSrc = path.join(this.resourcePath, 'nomad.db');
-    const nameSrc = path.join(this.resourcePath, 'names.db');
     const pendingSrc = path.join(this.resourcePath, 'pending.db');
     await fs.promises.copyFile(nomadSrc, this.dbPath);
-    await fs.promises.copyFile(nameSrc, this.namedbPath);
     await fs.promises.copyFile(pendingSrc, this.pendingDbPath);
   }
 
@@ -1323,12 +1497,11 @@ export class IndexerManager {
   }
 
   async streamAllBlobs(): Promise<void> {
-    await this.streamBlobInfo();
+    // const tlds = await this.readAllTLDs();
+    const tlds = ['9325'];
 
-    const tlds = Object.keys(TLD_CACHE);
-    // const tlds = ['5404']
-    for (let i = 0; i < tlds.length; i = i + 19) {
-      const selectedTLDs = tlds.slice(i, i + 19).filter(tld => !!tld);
+    for (let i = 0; i < tlds.length; i = i + 1) {
+      const selectedTLDs = tlds.slice(i, i + 1).filter(tld => !!tld);
       await this.streamNBlobs(selectedTLDs);
     }
 
@@ -1349,10 +1522,6 @@ export class IndexerManager {
       this.client.streamBlobInfo(start, 100, async (info) => {
         if (timeout) clearTimeout(timeout);
 
-        if (shouldStreamContent) {
-          await this.insertOrUpdateBlobInfo(info.name, info.merkleRoot);
-        }
-
         TLD_CACHE[info.name] = info.merkleRoot;
         lastUpdate = info.name;
         counter++;
@@ -1365,133 +1534,7 @@ export class IndexerManager {
 
       timeout = setTimeout(resolve, 500);
     })
-  }
-
-  private insertOrUpdateSubdomain = async (index: number, tld: string, publicKey: string, name: string): Promise<void> => {
-    const row = await this.getSubdomainByIndex(index, tld);
-
-    if (row) {
-      return this.nameDB.exec(`
-        UPDATE names
-        SET
-          name = @name,
-          "index" = @index,
-          public_key = @publicKey,
-          tld = @tld
-        WHERE
-          "name" = @name AND tld = @tld
-      `, {
-          name,
-          index,
-          publicKey,
-          tld,
-        });
-    } else {
-      return this.nameDB.exec(`
-        INSERT INTO names (name, "index", public_key, tld)
-        VALUES (@name, @index, @publicKey, @tld)
-      `, {
-        name,
-        index,
-        publicKey,
-        tld,
-      });
-    }
   };
-
-  private getSubdomainByIndex = (index: number, tld: string): Subdomain | null => {
-    const row = this.nameDB.first(`
-      SELECT * FROM names
-      WHERE "index" = @index AND tld = @tld
-    `, {
-      index,
-      tld,
-    });
-
-    if (!row) return null;
-
-    return {
-      name: row?.name,
-      index: row?.index,
-      publicKey: Buffer.from(row?.public_key, 'hex'),
-    }
-  };
-
-  getNameIndexBySubdomain = (username: string, tld: string): number => {
-    const row = this.nameDB.first(`
-      SELECT "index" FROM names n
-      WHERE name = @username AND tld = @tld
-    `, {
-      username,
-      tld,
-    });
-
-    if (!row) return 0;
-
-    return row.index;
-  };
-
-  getNextNeworkId = (username: string, tld: string): string => {
-    return crypto.randomBytes(8).toString('hex');
-    // const row = this.engine.first(`
-    //   SELECT network_id FROM envelopes
-    //   WHERE tld = @tld AND subdomain = @username
-    //   ORDER BY network_id DESC
-    // `, {
-    //   username,
-    //   tld,
-    // });
-    //
-    // if (!row) return 0;
-    //
-    // return 1 + Number(row.network_id);
-  };
-
-  private insertOrUpdateBlobInfo = async (tld: string, merkleRoot: string): Promise<void> => {
-    const row = await this.getBlobInfo(tld);
-
-    if (row) {
-      if (row.merkleRoot !== merkleRoot) {
-        return this.nameDB.exec(`
-          UPDATE blobs
-          SET
-            merkleRoot = @merkleRoot,
-            last_scanned_at = @lastScannedAt
-          WHERE tld = @tld
-        `, {
-          merkleRoot,
-          lastScannedAt: Date.now(),
-          tld,
-        });
-      }
-    } else {
-      return this.nameDB.exec(`
-        INSERT INTO blobs (tld, merkleRoot, last_scanned_at)
-        VALUES (@tld, @merkleRoot, @lastScannedAt)
-      `, {
-        merkleRoot,
-        lastScannedAt: Date.now(),
-        tld,
-      });
-    }
-  };
-
-  private getBlobInfo = (tld: string): { tld: string; merkleRoot: string; lastScannedAt: string} | null => {
-    const row = this.nameDB.first(`
-      SELECT * FROM blobs
-      WHERE tld = @tld
-    `, {
-      tld,
-    });
-
-    if (!row) return null;
-
-    return {
-      tld: row?.tld,
-      merkleRoot: row?.merkleRoot,
-      lastScannedAt: row?.last_scanned_at,
-    };
-  }
 }
 
 function wait(ms: number): Promise<void> {

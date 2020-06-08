@@ -2,6 +2,7 @@ import bodyParser from 'body-parser';
 import {RestServer} from "./services/rest-server";
 import {DDRPManager} from "./services/ddrp";
 import {IndexerManager} from "./services/indexer";
+import {SubdomainManager} from "./services/subdomains";
 import {makeResponse} from "./util/rest";
 import Timeout = NodeJS.Timeout;
 import {Envelope as DomainEnvelope} from 'ddrp-indexer/dist/domain/Envelope';
@@ -9,20 +10,40 @@ import {Post as DomainPost} from 'ddrp-indexer/dist/domain/Post';
 import {Connection as DomainConnection} from 'ddrp-indexer/dist/domain/Connection';
 import {Moderation as DomainModeration} from 'ddrp-indexer/dist/domain/Moderation';
 import {dotName} from "./util/user";
+import {Writer} from "./services/writer";
+import config from "../config.json";
+import PostgresAdapter from "./db/PostgresAdapter";
 const SERVICE_KEY = process.env.SERVICE_KEY;
 
 const jsonParser = bodyParser.json();
 
-
 let watchInterval: Timeout;
 
 (async () => {
+  let pgClient: PostgresAdapter | undefined;
+
+  if (config.postgres?.host) {
+    pgClient = new PostgresAdapter(config.postgres);
+  }
+
   const server = new RestServer();
   const ddrp = new DDRPManager();
-  const indexer = new IndexerManager();
+  const indexer = new IndexerManager({
+    pgClient,
+  });
+  const subdomains = new SubdomainManager({
+    indexer,
+    pgClient,
+  });
+  const writer = new Writer({
+    indexer,
+    subdomains,
+  });
+  subdomains.writer = writer;
 
   await ddrp.start();
   await indexer.start();
+  await subdomains.start();
 
   // Ingest on every blob sync
   ddrp.onNameSynced(indexer.maybeStreamBlob);
@@ -30,6 +51,8 @@ let watchInterval: Timeout;
   const app = server.app;
 
   indexer.setRoutes(app);
+  writer.setRoutes(app);
+  subdomains.setRoutes(app);
 
   app.post('/services/rescan', async function handleRescan(req, res) {
     if (SERVICE_KEY && req.headers['service-key'] !== SERVICE_KEY) {
