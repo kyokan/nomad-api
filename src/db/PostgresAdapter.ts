@@ -45,6 +45,7 @@ export default class PostgresAdapter {
         VALUES ($1, $2, $3, $4, $5)
         RETURNING id
       `;
+
       const {
         rows: [{id: envId}]
       } = await client.query(sql, [
@@ -52,7 +53,7 @@ export default class PostgresAdapter {
         env.subdomain,
         env.networkId,
         env.refhash,
-        env.createdAt.toISOString(),
+        env.createdAt.toISOString().split('.')[0]+"Z",
       ]);
       await client.query('COMMIT');
       return envId;
@@ -277,7 +278,7 @@ export default class PostgresAdapter {
       `, [
         ref.message.id,
       ]);
-      
+
       await this.handleReplies(ref, depth + 1, client);
 
       await client.query('COMMIT');
@@ -319,13 +320,19 @@ export default class PostgresAdapter {
       res.rows.forEach(({ tag }) => tags.push(tag));
     }
 
+    const timestamp = new Date(row.created_at).getTime();
+    let createdAt: Date = new Date(timestamp)
+    if (String(timestamp).length > 13) {
+      createdAt = new Date(Number(String(timestamp).slice(0, 13)));
+    }
+
     const env = new DomainEnvelope<DomainPost>(
       row.envelope_id,
       row.tld,
       row.subdomain,
       row.network_id,
       row.refhash,
-      row.created_at,
+      createdAt,
       new DomainPost(
         row.post_id,
         row.body,
@@ -381,6 +388,8 @@ export default class PostgresAdapter {
         limit,
         offset,
       ]);
+
+
 
       for (let i = 0; i < rows.length; i++) {
         const post = await this.mapPost(rows[i], true, client);
@@ -1164,5 +1173,189 @@ export default class PostgresAdapter {
       client.release();
       return '';
     }
+  }
+
+  private async getUserMedia (username: string, client: PoolClient): Promise<DomainEnvelope<DomainMedia>[]> {
+    const { tld, subdomain } = parseUsername(username);
+
+    const envelopes: DomainEnvelope<DomainMedia>[] = [];
+
+    if (subdomain) return envelopes;
+
+    const { rows } = await client.query(`
+      SELECT e.id as envelope_id, m.id as media_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
+        m.filename, m.mime_type, m.content
+      FROM media m JOIN envelopes e ON m.envelope_id = e.id
+      WHERE e.tld = $1
+    `, [ tld ]);
+
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const timestamp = new Date(row.created_at).getTime();
+      let createdAt: Date = new Date(timestamp)
+      if (String(timestamp).length > 13) {
+        createdAt = new Date(Number(String(timestamp).slice(0, 13)));
+      }
+
+      envelopes.push(new DomainEnvelope<DomainMedia>(
+        row.envelope_id,
+        row.tld,
+        row.subdomain,
+        row.network_id,
+        row.refhash,
+        createdAt,
+        new DomainMedia(
+          row.media_id,
+          row.filename,
+          row.mime_type,
+          row.content,
+        ),
+        null
+      ));
+    }
+
+    return envelopes;
+  }
+
+  private async getUserConnections (username: string, client: PoolClient): Promise<DomainEnvelope<DomainConnection>[]> {
+    const { tld, subdomain } = parseUsername(username);
+
+    const envelopes: DomainEnvelope<DomainConnection>[] = [];
+
+    if (subdomain) return envelopes;
+
+    const {rows} = await client.query(`
+      SELECT e.id as envelope_id, c.id as connection_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
+        c.tld as connection_tld, c.subdomain as connection_subdomain, c.connection_type
+      FROM connections c JOIN envelopes e ON c.envelope_id = e.id
+      WHERE e.tld = $1
+    `, [ tld ]);
+
+    if (rows.length) {
+      rows.forEach((row: any) => {
+        const timestamp = new Date(row.created_at).getTime();
+        let createdAt: Date = new Date(timestamp)
+        if (String(timestamp).length > 13) {
+          createdAt = new Date(Number(String(timestamp).slice(0, 13)));
+        }
+
+        envelopes.push(new DomainEnvelope<DomainConnection>(
+          row.envelope_id,
+          row.tld,
+          row.subdomain,
+          row.network_id,
+          row.refhash,
+          createdAt,
+          new DomainConnection(
+            row.connection_id,
+            row.connection_tld,
+            row.connection_subdomain,
+            row.connection_type,
+          ),
+          null
+        ));
+      });
+    }
+
+    return envelopes;
+  }
+
+  private async getUserModerations (username: string, client: PoolClient): Promise<DomainEnvelope<DomainModeration>[]> {
+    const { tld, subdomain } = parseUsername(username);
+
+    const envelopes: DomainEnvelope<DomainModeration>[] = [];
+
+    if (subdomain) return envelopes;
+
+    const {rows} = await client.query(`
+      SELECT e.id as envelope_id, m.id as moderation_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at,
+        m.reference, m.moderation_type
+      FROM moderations m JOIN envelopes e ON m.envelope_id = e.id
+      WHERE e.tld = $1
+    `, [ tld ]);
+
+    if (rows.length) {
+      rows.forEach((row: any) => {
+        const timestamp = new Date(row.created_at).getTime();
+        let createdAt: Date = new Date(timestamp)
+        if (String(timestamp).length > 13) {
+          createdAt = new Date(Number(String(timestamp).slice(0, 13)));
+        }
+
+        envelopes.push(new DomainEnvelope<DomainModeration>(
+          row.envelope_id,
+          row.tld,
+          row.subdomain,
+          row.network_id,
+          row.refhash,
+          createdAt,
+          new DomainModeration(
+            row.moderation_id,
+            row.reference,
+            row.moderation_type,
+          ),
+          null
+        ));
+      });
+    }
+
+    return envelopes;
+  }
+
+  private async getUserPosts (username: string, client: PoolClient): Promise<DomainEnvelope<DomainPost>[]> {
+    const { tld, subdomain } = parseUsername(username);
+
+    const envelopes: DomainEnvelope<DomainPost>[] = [];
+
+    if (subdomain) return envelopes;
+
+    const {rows} = await client.query(`
+      SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+              p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+      FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+      WHERE e.tld = $1
+    `, [ tld ]);
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const post = await this.mapPost(row, true, client);
+      if (post){
+        envelopes.push(post);
+      }
+    }
+
+    return envelopes;
+  }
+
+  async getUserEnvelopes (username: string): Promise<DomainEnvelope<any>[]> {
+    const client = await this.pool.connect();
+
+    try {
+      const posts = await this.getUserPosts(username, client);
+      const mods = await this.getUserModerations(username, client);
+      const conns = await this.getUserConnections(username, client);
+      const medias = await this.getUserMedia(username, client);
+
+      client.release();
+
+      const envelopes: DomainEnvelope<any>[] = [
+        ...mods,
+        ...conns,
+        ...medias,
+        ...posts,
+      ].sort((a, b) => {
+        if (a.createdAt > b.createdAt) return 1;
+        if (a.createdAt < b.createdAt) return -1;
+        return 0;
+      });
+
+      return envelopes;
+    } catch (e) {
+      client.release();
+      throw e;
+    }
+
+
   }
 }

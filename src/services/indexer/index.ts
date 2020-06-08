@@ -891,7 +891,9 @@ export class IndexerManager {
     return envelopes;
   }
 
-  async getUserEnvelopes (username: string): Promise<DomainEnvelope<any>[]> {
+  async getUserEnvelopes (username: string, source: 'sqlite' | 'postgres' = 'sqlite'): Promise<DomainEnvelope<any>[]> {
+    if (source === "postgres" && this.pgClient) return this.pgClient?.getUserEnvelopes(username);
+
     let envelopes: DomainEnvelope<any>[];
 
     const posts = await this.getUserPosts(username);
@@ -908,7 +910,6 @@ export class IndexerManager {
       if (a.createdAt < b.createdAt) return -1;
       return 0;
     });
-
     return envelopes;
   }
 
@@ -1496,8 +1497,8 @@ export class IndexerManager {
   }
 
   async streamAllBlobs(): Promise<void> {
-    const tlds = await this.readAllTLDs();
-    // const tlds = ['9325'];
+    // const tlds = await this.readAllTLDs();
+    const tlds = ['9325'];
 
     for (let i = 0; i < tlds.length; i = i + 1) {
       const selectedTLDs = tlds.slice(i, i + 1).filter(tld => !!tld);

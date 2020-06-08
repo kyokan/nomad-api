@@ -59,7 +59,7 @@ export class Writer {
     }
   }
 
-  async reconstructBlob(tld: string, envelope?: Envelope, date?: Date, broadcast?: boolean): Promise<void> {
+  async reconstructBlob(tld: string, date?: Date, broadcast?: boolean, source?: 'sqlite' | 'postgres'): Promise<void> {
     // await Promise.all(users.map(async (user) => {
     //   await this.subdomains.addSubdomain(`${user.tld}`, user.subdomain, user.email, null, user.hashed_password);
     // }));
@@ -70,7 +70,7 @@ export class Writer {
 
     if (!tldData || !tldData.privateKey) throw new Error(`cannot find singer for ${tld}`);
 
-    const envs = await this.indexer.getUserEnvelopes(tld);
+    const envs = await this.indexer.getUserEnvelopes(tld, source);
     let oldSubs: SubdomainDBRow[] = [];
 
     const createdAt = date || new Date();
@@ -90,20 +90,16 @@ export class Writer {
     let offset = 64 * 1024;
 
     for (let i = 0; i < envs.length; i++) {
-      const shouldBroadcast = broadcast && !envelope && i === envs.length - 1;
+      const shouldBroadcast = broadcast && i === envs.length - 1;
       const nameIndex = await this.subdomains.getNameIndex(envs[i]?.subdomain, tld);
       const endOffset = await this.appendEnvelope(
         tld,
         envs[i].toWire(nameIndex),
-        envs[i].createdAt,
+        createdAt,
         shouldBroadcast,
         offset,
       );
       offset = endOffset;
-    }
-
-    if (envelope && date) {
-      await this.appendEnvelope(tld, envelope, date, broadcast, offset);
     }
   }
 
@@ -294,6 +290,7 @@ export class Writer {
 
       const {
         broadcast,
+        source,
       } = req.body;
 
       if (!SERVICE_KEY || req.headers['service-key'] !== SERVICE_KEY) {
@@ -309,7 +306,7 @@ export class Writer {
       trackAttempt('reformat blob', req, blobName);
 
       try {
-        await this.reconstructBlob(blobName, broadcast);
+        await this.reconstructBlob(blobName, undefined, broadcast, source);
         return res.send(makeResponse('ok'));
       } catch (e) {
         return res.status(500)
