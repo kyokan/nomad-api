@@ -60,6 +60,10 @@ export class Writer {
   }
 
   async reconstructBlob(tld: string, date?: Date, broadcast?: boolean, source?: 'sqlite' | 'postgres'): Promise<void> {
+    // await Promise.all(users.map(async (user) => {
+    //   await this.subdomains.addSubdomain(`${user.tld}`, user.subdomain, user.email, null, user.hashed_password);
+    // }));
+    // return;
     // @ts-ignore
     const tldData = config.signers[tld];
 
