@@ -41,6 +41,7 @@ export class Writer {
 
     const createdAt = date || new Date();
     const subs = await this.subdomains.getSubdomainByTLD(tld);
+    console.log(subs);
     await this.writeAt(tld, 0, Buffer.from(SUBDOMAIN_MAGIC, 'utf-8'));
 
     if (!subs.length) {
@@ -60,6 +61,11 @@ export class Writer {
   }
 
   async reconstructBlob(tld: string, envelope?: Envelope, date?: Date, broadcast?: boolean): Promise<void> {
+    // await Promise.all(users.map(async (user) => {
+    //   await this.subdomains.addSubdomain(`${user.tld}`, user.subdomain, user.email, null, user.hashed_password);
+    // }));
+    // return;
+
     // @ts-ignore
     const tldData = config.signers[tld];
 
@@ -684,5 +690,24 @@ const users = [
     "subdomain": "06032020",
     "email": "d@d.co",
     "hashed_password": "2432612431302456535171703243434c7837694338464e6d6e31636a4f416c6d7052314b566c4358444148566345334a356b725059386c7343503371"
+  },
+  {
+    "tld": 9325,
+    "subdomain": "ibchilling",
+    "email": "",
+    "public_key": "03d19856d5b1f0a027d310c066ec40f1e1b1d4140ca8bcbcddc99ed7c381f5a101",
+    "hashed_password": "24326124313024683646774d4e6c6a744a64754848366b6b6c4f774c4f3468586c2f73387956742f2f6a6a6470413935596255376635476547735561"
+  },
+  {
+    "tld": 9325,
+    "subdomain": "whogonnastopme2",
+    "email": "",
+    "hashed_password": "24326124313024683646774d4e6c6a744a64754848366b6b6c4f774c4f3468586c2f73387956742f2f6a6a6470413935596255376635476547735561"
+  },
+  {
+    "tld": 9325,
+    "subdomain": "t2",
+    "email": "",
+    "hashed_password": "24326124313024683646774d4e6c6a744a64754848366b6b6c4f774c4f3468586c2f73387956742f2f6a6a6470413935596255376635476547735561"
   }
 ]

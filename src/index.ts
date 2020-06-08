@@ -11,6 +11,8 @@ import {Connection as DomainConnection} from 'ddrp-indexer/dist/domain/Connectio
 import {Moderation as DomainModeration} from 'ddrp-indexer/dist/domain/Moderation';
 import {dotName} from "./util/user";
 import {Writer} from "./services/writer";
+import config from "../config.json";
+import PostgresAdapter from "./db/PostgresAdapter";
 const SERVICE_KEY = process.env.SERVICE_KEY;
 
 const jsonParser = bodyParser.json();
@@ -18,11 +20,20 @@ const jsonParser = bodyParser.json();
 let watchInterval: Timeout;
 
 (async () => {
+  let pgClient: PostgresAdapter | undefined;
+
+  if (config.postgres?.host) {
+    pgClient = new PostgresAdapter(config.postgres);
+  }
+
   const server = new RestServer();
   const ddrp = new DDRPManager();
-  const indexer = new IndexerManager();
+  const indexer = new IndexerManager({
+    pgClient,
+  });
   const subdomains = new SubdomainManager({
     indexer,
+    pgClient,
   });
   const writer = new Writer({
     indexer,

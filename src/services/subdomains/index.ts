@@ -37,6 +37,7 @@ import {IndexerManager} from "../indexer";
 import {promisify} from "util";
 import {parseUsername, serializeUsername} from "../../util/user";
 import {createSessionKey, hashPassword, hashString, verifySessionKey} from "../../util/key";
+import PostgresAdapter from "../../db/PostgresAdapter";
 
 export type SubdomainDBRow = {
   name: string;
@@ -51,6 +52,7 @@ export class SubdomainManager {
   resourcePath: string;
   writer?: Writer;
   indexer: IndexerManager;
+  pgClient?: PostgresAdapter;
 
   constructor(opts: {
     dbPath?: string;
@@ -58,7 +60,9 @@ export class SubdomainManager {
     resourcePath?: string;
     pendingDbPath?: string;
     indexer: IndexerManager;
+    pgClient?: PostgresAdapter;
   }) {
+    this.pgClient = opts.pgClient;
     this.nameDB = new SqliteEngine(opts.namedbPath || namedbPath);
     this.namedbPath = opts.namedbPath || namedbPath;
     this.resourcePath = opts.resourcePath || 'resources';
@@ -116,6 +120,8 @@ export class SubdomainManager {
   }
 
   async getSubdomainByTLD(tld: string): Promise<SubdomainDBRow[]> {
+    if (this.pgClient) return this.pgClient.getSubdomainByTLD(tld);
+
     const rows: SubdomainDBRow[] = [];
 
     this.nameDB!.each(`
@@ -130,7 +136,9 @@ export class SubdomainManager {
     return rows.reverse();
   }
 
-  getSubdomain(tld: string, subdomain: string): SubdomainDBRow | null {
+  async getSubdomain(tld: string, subdomain: string): Promise<SubdomainDBRow | null> {
+    if (this.pgClient) return this.pgClient.getSubdomain(tld, subdomain);
+
     let sub: SubdomainDBRow | null = null;
 
     this.nameDB!.each(`
@@ -143,7 +151,9 @@ export class SubdomainManager {
     return sub;
   }
 
-  async addSubdomain(tld: string, subdomain: string, email: string, publicKey: string | null, password: string): Promise<void> {
+  async addSubdomain(tld: string, subdomain: string, email = '', publicKey: string | null, password = ''): Promise<void> {
+    if (this.pgClient) return this.pgClient.addSubdomain(tld, subdomain, email, publicKey, password);
+
     // @ts-ignore
     const tldData = config.signers[tld];
 
@@ -164,11 +174,13 @@ export class SubdomainManager {
   }
 
   async getSubdomainPassword(tld: string, subdomain: string): Promise<string> {
+    if (this.pgClient) return this.pgClient.getSubdomainPassword(tld, subdomain);
+
     let password: string = '';
 
     this.nameDB!.each(`
-        SELECT password FROM names
-        WHERE tld = @tld AND name = @subdomain
+      SELECT password FROM names
+      WHERE tld = @tld AND name = @subdomain
     `, {
       tld,
       subdomain,
@@ -193,6 +205,7 @@ export class SubdomainManager {
 
     const sessionToken = req.headers['x-api-token'];
     const sessionName = await verifySessionKey(sessionToken);
+
     const { tld: sessionTLD, subdomain: sessionSubdomain } = parseUsername(sessionName);
     const { tld: signedTLD, subdomain: signedSubdomain, signature } = sig || {};
     const post: PostBody = {
@@ -207,7 +220,7 @@ export class SubdomainManager {
     const subdomain = signedSubdomain || sessionSubdomain;
 
     try {
-      const { public_key = '' } = this.getSubdomain(tld, subdomain) || {};
+      const { public_key = '' } = await this.getSubdomain(tld, subdomain) || {};
       const nameIndex = await this.getNameIndex(subdomain, tld);
 
       if (!nameIndex) {
@@ -223,7 +236,6 @@ export class SubdomainManager {
       if (!sessionName) {
         if (signature && public_key) {
           const hash = hashPostBody(post, createAt);
-
           // @ts-ignore
           const verfied = secp256k1.verify(
             hash,
@@ -295,7 +307,7 @@ export class SubdomainManager {
     const mod = { type, reference };
 
     try {
-      const { public_key = '' } = this.getSubdomain(tld, subdomain) || {};
+      const { public_key = '' } = await this.getSubdomain(tld, subdomain) || {};
       const nameIndex = await this.getNameIndex(subdomain, tld);
 
       if (!nameIndex) {
@@ -381,7 +393,7 @@ export class SubdomainManager {
     };
 
     try {
-      const { public_key = '' } = this.getSubdomain(tld, subdomain) || {};
+      const { public_key = '' } = await this.getSubdomain(tld, subdomain) || {};
       const nameIndex = await this.getNameIndex(subdomain, tld);
 
       if (!nameIndex) {
@@ -473,7 +485,7 @@ export class SubdomainManager {
     };
 
     try {
-      const { public_key = '' } = this.getSubdomain(tld, subdomain) || {};
+      const { public_key = '' } = await this.getSubdomain(tld, subdomain) || {};
       const nameIndex = await this.getNameIndex(subdomain, tld);
 
       if (!nameIndex) {
@@ -597,10 +609,8 @@ export class SubdomainManager {
         return res.status(400).send(makeResponse('invalid public key', true));
       }
 
-
       try {
-        const hashedPw = hashString(password);
-        console.log({ hashedPw, publicKey })
+        const hashedPw = password ? await hashPassword(password) : '';
         await this.addSubdomain(tld, subdomain, email, publicKey, hashedPw);
         res.send(makeResponse({
           subdomain,

@@ -86,14 +86,17 @@ export class IndexerManager {
   pendingDbPath: string;
   resourcePath: string;
 
-  constructor(opts?: { dbPath?: string; namedbPath?: string; resourcePath?: string; pendingDbPath?: string }) {
+  constructor(opts?: {
+    dbPath?: string;
+    namedbPath?: string;
+    resourcePath?: string;
+    pendingDbPath?: string;
+    pgClient?: PostgresAdapter;
+  }) {
     const client = new DDRPDClient('127.0.0.1:9098');
     this.client = client;
 
-    if (config.postgres?.host) {
-      this.pgClient = new PostgresAdapter(config.postgres);
-    }
-
+    this.pgClient = opts?.pgClient;
     this.engine = new SqliteEngine(opts?.dbPath || dbPath);
     this.pendingDB = new SqliteEngine(opts?.pendingDbPath || pendingDbPath);
     this.dbPath = opts?.dbPath || dbPath;

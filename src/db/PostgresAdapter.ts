@@ -13,6 +13,8 @@ import logger from "../util/logger";
 import {extendFilter, Filter} from "../util/filter";
 import {dotName, parseUsername} from "../util/user";
 import {UserProfile} from "../constants";
+import {SubdomainDBRow} from "../services/subdomains";
+import config from "../../config.json";
 
 type PostgresAdapterOpts = {
   user: string;
@@ -156,7 +158,6 @@ export default class PostgresAdapter {
     const client = _client || await this.pool.connect();
     try {
       await client.query('BEGIN');
-      console.log(env.message)
       const {rows: [{exists}]} = await client.query(
         'SELECT EXISTS(SELECT 1 FROM envelopes WHERE refhash = $1)',
         [env.refhash]
@@ -210,7 +211,9 @@ export default class PostgresAdapter {
           env.message.reference,
           env.message.topic,
         ]);
+
         const seenTags: { [k: string]: boolean } = {};
+
         for (const tag of env.message.tags) {
           if (seenTags[tag]) {
             continue;
@@ -218,11 +221,11 @@ export default class PostgresAdapter {
           seenTags[tag] = true;
 
           await client.query(`
-          INSERT INTO tags (name)
-          VALUES ($1)
-          ON CONFLICT DO NOTHING
-          RETURNING id
-        `, [
+            INSERT INTO tags (name)
+            VALUES ($1)
+            ON CONFLICT DO NOTHING
+            RETURNING id
+          `, [
             tag,
           ]);
 
@@ -447,8 +450,7 @@ export default class PostgresAdapter {
     }
   }
 
-  scanCommentCounts = async (): Promise<{[parent: string]: number}> => {
-    const client = await this.pool.connect();
+  scanCommentCounts = async (client: PoolClient): Promise<{[parent: string]: number}> => {
     const commentCounts: {[parent: string]: number} = {};
 
     try {
@@ -459,6 +461,8 @@ export default class PostgresAdapter {
       `;
 
       const {rows} = await client.query(sql);
+
+
       if (rows.length) {
         rows.forEach(row => {
           if (row.reference) {
@@ -470,13 +474,11 @@ export default class PostgresAdapter {
       return commentCounts;
     } catch (e) {
       logger.error('error scanning comments', e);
-      client.release();
       return commentCounts;
     }
   };
 
-  scanLikeCounts = async (): Promise<{[parent: string]: number}> => {
-    const client = await this.pool.connect();
+  scanLikeCounts = async (client: PoolClient): Promise<{[parent: string]: number}> => {
     const likeCounts: {[parent: string]: number} = {};
 
     try {
@@ -498,7 +500,6 @@ export default class PostgresAdapter {
       return likeCounts;
     } catch (e) {
       logger.error('error scanning likes', e);
-      client.release();
       return likeCounts;
     }
   };
@@ -507,8 +508,8 @@ export default class PostgresAdapter {
     const client = await this.pool.connect();
 
     try {
-      const commentCounts = await this.scanCommentCounts();
-      const likeCounts = await this.scanLikeCounts();
+      const commentCounts = await this.scanCommentCounts(client);
+      const likeCounts = await this.scanLikeCounts(client);
 
       for (let parentHash in commentCounts) {
         const {rows} = await client.query(`
@@ -1002,8 +1003,7 @@ export default class PostgresAdapter {
     }
   };
 
-  private getPostersOfTag = async (tagName: string, _client?: PoolClient): Promise<{tld: string; subdomain: string; count: number}[]> => {
-    const client = _client || await this.pool.connect();
+  private getPostersOfTag = async (tagName: string, client: PoolClient): Promise<{tld: string; subdomain: string; count: number}[]> => {
     const sql = `
       SELECT e.tld, e.subdomain
       FROM posts p
@@ -1044,6 +1044,8 @@ export default class PostgresAdapter {
         ret.push(rows[i]);
       }
 
+      client.release();
+
       if (!ret.length) {
         return {
           items: [],
@@ -1065,4 +1067,98 @@ export default class PostgresAdapter {
       };
     }
   };
+
+  async getSubdomainByTLD(tld: string): Promise<SubdomainDBRow[]> {
+    const client = await this.pool.connect();
+    const ret: SubdomainDBRow[] = [];
+    try {
+      const {rows} = await client.query(`
+        SELECT * FROM users
+        WHERE tld = $1
+        ORDER BY name
+      `, [
+        tld,
+      ]);
+
+      for (let i = 0; i < rows.length; i++) {
+        ret.push(rows[i]);
+      }
+
+      client.release();
+
+      return rows.reverse();
+    } catch (e) {
+      logger.error('erorr getting subdomains', e);
+      client.release();
+      return [];
+    }
+  }
+
+  async addSubdomain(tld: string, subdomain: string, email: string, publicKey: string | null, password: string): Promise<void> {
+    const client = await this.pool.connect();
+
+    try {
+      // @ts-ignore
+      const tldData = config.signers[tld];
+
+      if (!tldData || !tldData.privateKey) throw new Error(`cannot find singer for ${tld}`);
+
+      await client.query(`
+        INSERT INTO users (name, public_key, tld, email, password)
+        VALUES ($2, $3, $1, $4, $5)
+        ON CONFLICT DO NOTHING
+      `, [
+        tld,
+        subdomain,
+        publicKey || '',
+        email,
+        password,
+      ]);
+
+      client.release();
+    } catch (e) {
+      logger.error('erorr adding subdomains', e);
+      client.release();
+      throw e;
+    }
+  }
+
+  async getSubdomain(tld: string, subdomain: string): Promise<SubdomainDBRow | null> {
+    const client = await this.pool.connect();
+    let sub: SubdomainDBRow | null = null;
+
+    try {
+      const {rows} = await client.query(`
+        SELECT * FROM users
+        WHERE tld = $1 AND name = $2
+      `, [ tld, subdomain ]);
+
+      sub = rows[0] || null;
+
+      client.release();
+      return sub;
+    } catch (e) {
+      logger.error('erorr getting subdomain', e);
+      client.release();
+      return sub;
+    }
+  }
+
+  async getSubdomainPassword(tld: string, subdomain: string): Promise<string> {
+    const client = await this.pool.connect();
+
+    try {
+      const {rows} = await client.query(`
+        SELECT password FROM users
+        WHERE tld = $1 AND name = $2
+      `, [ tld, subdomain ]);
+
+      client.release();
+      return rows[0]?.password || '';
+    } catch (e) {
+      logger.error('erorr getting subdomain', e);
+      client.release();
+      return '';
+    }
+  }
 }
