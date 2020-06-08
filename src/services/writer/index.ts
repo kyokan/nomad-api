@@ -41,7 +41,6 @@ export class Writer {
 
     const createdAt = date || new Date();
     const subs = await this.subdomains.getSubdomainByTLD(tld);
-    console.log(subs);
     await this.writeAt(tld, 0, Buffer.from(SUBDOMAIN_MAGIC, 'utf-8'));
 
     if (!subs.length) {

@@ -818,7 +818,7 @@ export class IndexerManager {
       FROM connections c JOIN envelopes e ON c.envelope_id = e.id
       WHERE e.tld = @tld
     `, { tld, subdomain }, row => {
-      if (!row.connection_subdomain) return;
+      // if (!row.connection_subdomain) return;
 
       envelopes.push(new DomainEnvelope<DomainConnection>(
         row.envelope_id,
@@ -1498,7 +1498,6 @@ export class IndexerManager {
   async streamAllBlobs(): Promise<void> {
     const tlds = await this.readAllTLDs();
     // const tlds = ['9325'];
-
 
     for (let i = 0; i < tlds.length; i = i + 1) {
       const selectedTLDs = tlds.slice(i, i + 1).filter(tld => !!tld);

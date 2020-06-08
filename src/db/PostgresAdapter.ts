@@ -204,7 +204,7 @@ export default class PostgresAdapter {
           INSERT INTO posts (envelope_id, body, title, reference, topic, reply_count, like_count, pin_count)
           VALUES ($1, $2, $3, $4, $5, 0, 0, 0)
           RETURNING id
-    `, [
+        `, [
           envelopeId,
           env.message.body,
           env.message.title,
@@ -241,11 +241,13 @@ export default class PostgresAdapter {
             ]);
           }
 
-          await this.handleReplies(env, 0, client);
         }
 
+        await this.handleReplies(env, 0, client);
       }
+
       await client.query('COMMIT');
+
     } catch (e) {
       await client.query('ROLLBACK');
       logger.error('error inserting post to postgres', e);
@@ -262,16 +264,20 @@ export default class PostgresAdapter {
       if (!env.message.reference) {
         return;
       }
+
       const ref = await this.getPostByRefhashTags(env.message.reference, false, client);
 
       if (!ref) {
         return;
       }
 
-      await client.query('UPDATE posts SET reply_count = reply_count + 1 WHERE id = $1', [
-        env.message.id,
+      await client.query(`
+        UPDATE posts SET reply_count = reply_count + 1
+        WHERE id = $1
+      `, [
+        ref.message.id,
       ]);
-
+      
       await this.handleReplies(ref, depth + 1, client);
 
       await client.query('COMMIT');
@@ -279,8 +285,6 @@ export default class PostgresAdapter {
     } catch (e) {
       await client.query('ROLLBACK');
       throw e
-    } finally {
-
     }
   }
 
@@ -753,7 +757,7 @@ export default class PostgresAdapter {
       let lastId = -1;
 
       const {rows} = await client.query(`
-        SELECT c.id, c.tld, c.subdomain
+        SELECT c.id, e.tld, e.subdomain
         FROM connections c
            JOIN envelopes e ON c.envelope_id = e.id
         WHERE c.tld = $1 AND c.subdomain = $2 AND c.id > $3 AND c.connection_type = $5
