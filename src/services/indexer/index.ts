@@ -943,7 +943,7 @@ export class IndexerManager {
     );
   }
 
-  insertPost = async (tld: string, wire: WireEnvelope, subdomains: SubdomainDBRow[] = [], _client?: any): Promise<any> => {
+  insertPost = async (tld: string, wire: WireEnvelope, subdomains: SubdomainDBRow[] = []): Promise<any> => {
     const nameIndex = wire.nameIndex;
     const subdomain = subdomains[nameIndex];
 
@@ -969,19 +969,19 @@ export class IndexerManager {
       switch (message.type.toString('utf-8')) {
         case Post.TYPE.toString('utf-8'):
           return this.pgClient
-            ? await this.pgClient.insertPost(domainEnvelope as DomainEnvelope<DomainPost>, _client)
+            ? await this.pgClient.insertPost(domainEnvelope as DomainEnvelope<DomainPost>)
             : await this.postsDao?.insertPost(domainEnvelope as DomainEnvelope<DomainPost>);
         case Connection.TYPE.toString('utf-8'):
           return this.pgClient
-            ? await this.pgClient.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>, _client)
+            ? await this.pgClient.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>)
             : await this.connectionsDao?.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>);
         case Moderation.TYPE.toString('utf-8'):
           return this.pgClient
-            ? await this.pgClient.insertModeration(domainEnvelope as DomainEnvelope<DomainModeration>, _client)
+            ? await this.pgClient.insertModeration(domainEnvelope as DomainEnvelope<DomainModeration>)
             : await this.moderationsDao?.insertModeration(domainEnvelope as DomainEnvelope<DomainModeration>);
         case Media.TYPE.toString('utf-8'):
           return this.pgClient
-            ? await this.pgClient.insertMedia(domainEnvelope as DomainEnvelope<DomainMedia>, _client)
+            ? await this.pgClient.insertMedia(domainEnvelope as DomainEnvelope<DomainMedia>)
             : await this.mediaDao?.insertMedia(domainEnvelope as DomainEnvelope<DomainMedia>);
         default:
           return;
@@ -1311,7 +1311,6 @@ export class IndexerManager {
 
   private scanBlobData = async (r: BufferedReader, tld: string, subdomains: SubdomainDBRow[]) => {
     let timeout: any | undefined;
-    let client: any;
 
     return new Promise(async (resolve, reject) => {
       logger.info(`scan blob data`, { tld });
@@ -1334,7 +1333,7 @@ export class IndexerManager {
           return false;
         }
 
-        client = await this.insertPost(tld, env, subdomains);
+        await this.insertPost(tld, env, subdomains);
 
         logger.info('scanned envelope', { tld, network_id: env.id });
 

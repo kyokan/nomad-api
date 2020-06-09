@@ -35,8 +35,8 @@ export default class PostgresAdapter {
     this.pool = pool;
   }
 
-  async insertEnvelope(env: DomainEnvelope<any>, _client?: PoolClient): Promise<number> {
-    const client = _client || await this.pool.connect();
+  async insertEnvelope(env: DomainEnvelope<any>, _client: PoolClient): Promise<number> {
+    const client = _client;
 
     try {
       await client.query('BEGIN');
@@ -60,15 +60,11 @@ export default class PostgresAdapter {
     } catch (e) {
       await client.query('ROLLBACK');
       throw e
-    } finally {
-      // if (!_client) {
-      //   client.release();
-      // }
     }
   }
 
-  async insertModeration(env: DomainEnvelope<DomainModeration>, _client?: PoolClient) {
-    const client = _client || await this.pool.connect();
+  async insertModeration(env: DomainEnvelope<DomainModeration>) {
+    const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
 
@@ -123,8 +119,8 @@ export default class PostgresAdapter {
     }
   }
 
-  async insertMedia(env: DomainEnvelope<DomainMedia>, _client?: PoolClient) {
-    const client = _client || await this.pool.connect();
+  async insertMedia(env: DomainEnvelope<DomainMedia>) {
+    const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
 
@@ -155,8 +151,8 @@ export default class PostgresAdapter {
     }
   }
 
-  async insertConnection(env: DomainEnvelope<DomainConnection>, _client?: PoolClient) {
-    const client = _client || await this.pool.connect();
+  async insertConnection(env: DomainEnvelope<DomainConnection>) {
+    const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
       const {rows: [{exists}]} = await client.query(
@@ -187,7 +183,7 @@ export default class PostgresAdapter {
     }
   }
 
-  async insertPost(env: DomainEnvelope<DomainPost>, _client?: PoolClient): Promise<void> {
+  async insertPost(env: DomainEnvelope<DomainPost>): Promise<void> {
     const client = await this.pool.connect();
 
     try {
@@ -248,18 +244,17 @@ export default class PostgresAdapter {
       }
 
       await client.query('COMMIT');
-
+      client.release();
     } catch (e) {
       await client.query('ROLLBACK');
-      logger.error('error inserting post to postgres', e);
-    } finally {
-      logger.verbose('released pg client', { tld: env.tld });
       client.release();
+      logger.error('error inserting post to postgres', e);
+      throw 2;
     }
   }
 
-  private async handleReplies (env: DomainEnvelope<DomainPost>, depth = 0, _client?: PoolClient): Promise<void> {
-    const client = _client || await this.pool.connect();
+  private async handleReplies (env: DomainEnvelope<DomainPost>, depth = 0, _client: PoolClient): Promise<void> {
+    const client = _client;
     try {
       await client.query('BEGIN');
       if (!env.message.reference) {
@@ -298,9 +293,12 @@ export default class PostgresAdapter {
         WHERE session_token = $1
       `, [token]);
 
+      client.release();
+
       if (rows.length && Number(rows[0].session_expiry) > Date.now()) {
         return `${rows[0].name}.${rows[0].tld}`;
       }
+
       return '';
     } catch (e) {
       client.release();
@@ -343,13 +341,16 @@ export default class PostgresAdapter {
     `, [
       refhash,
     ]);
+
+    if (!_client) client.release();
+
     return await this.mapPost(rows[0], includeTags, client);
   }
 
   // @ts-ignore
-  async mapPost(row?: { [k: string]: any }, includeTags: boolean,  _client?: PoolClient): Promise<DomainEnvelope<DomainPost> | null> {
+  async mapPost(row?: { [k: string]: any }, includeTags: boolean,  _client: PoolClient): Promise<DomainEnvelope<DomainPost> | null> {
     if (!row) return null;
-    const client = _client || await this.pool.connect();
+    const client = _client;
     const tags: string[] = [];
 
     if (includeTags) {
@@ -393,22 +394,6 @@ export default class PostgresAdapter {
     return env;
   }
 
-  async test(env: DomainEnvelope<DomainPost>, _client?: PoolClient) {
-    const client = _client || await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      await client.query('COMMIT');
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e
-    } finally {
-      if (!_client) {
-        client.release();
-      }
-    }
-  }
-
   getPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
     if (limit <= 0) {
       return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
@@ -431,8 +416,6 @@ export default class PostgresAdapter {
         limit,
         offset,
       ]);
-
-
 
       for (let i = 0; i < rows.length; i++) {
         const post = await this.mapPost(rows[i], true, client);
@@ -504,7 +487,7 @@ export default class PostgresAdapter {
       client.release();
       return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
     }
-  }
+  };
 
   scanCommentCounts = async (client: PoolClient): Promise<{[parent: string]: number}> => {
     const commentCounts: {[parent: string]: number} = {};
@@ -517,7 +500,6 @@ export default class PostgresAdapter {
       `;
 
       const {rows} = await client.query(sql);
-
 
       if (rows.length) {
         rows.forEach(row => {
