@@ -53,7 +53,7 @@ export default class PostgresAdapter {
         env.subdomain,
         env.networkId,
         env.refhash,
-        env.createdAt.toISOString().split('.')[0]+"Z",
+        env.createdAt.getTime(),
       ]);
       await client.query('COMMIT');
       return envId;
@@ -364,11 +364,8 @@ export default class PostgresAdapter {
       res.rows.forEach(({ tag }) => tags.push(tag));
     }
 
-    const timestamp = new Date(row.created_at).getTime();
-    let createdAt: Date = new Date(timestamp)
-    if (String(timestamp).length > 13) {
-      createdAt = new Date(Number(String(timestamp).slice(0, 13)));
-    }
+    const timestamp = +row.created_at;
+    const createdAt: Date = new Date(timestamp);
 
     const env = new DomainEnvelope<DomainPost>(
       row.envelope_id,
@@ -1226,11 +1223,8 @@ export default class PostgresAdapter {
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      const timestamp = new Date(row.created_at).getTime();
-      let createdAt: Date = new Date(timestamp)
-      if (String(timestamp).length > 13) {
-        createdAt = new Date(Number(String(timestamp).slice(0, 13)));
-      }
+      const timestamp = +row.created_at;
+      const createdAt: Date = new Date(timestamp);
 
       envelopes.push(new DomainEnvelope<DomainMedia>(
         row.envelope_id,
@@ -1268,11 +1262,8 @@ export default class PostgresAdapter {
 
     if (rows.length) {
       rows.forEach((row: any) => {
-        const timestamp = new Date(row.created_at).getTime();
-        let createdAt: Date = new Date(timestamp)
-        if (String(timestamp).length > 13) {
-          createdAt = new Date(Number(String(timestamp).slice(0, 13)));
-        }
+        const timestamp = +row.created_at;
+        const createdAt: Date = new Date(timestamp);
 
         envelopes.push(new DomainEnvelope<DomainConnection>(
           row.envelope_id,
@@ -1311,11 +1302,8 @@ export default class PostgresAdapter {
 
     if (rows.length) {
       rows.forEach((row: any) => {
-        const timestamp = new Date(row.created_at).getTime();
-        let createdAt: Date = new Date(timestamp)
-        if (String(timestamp).length > 13) {
-          createdAt = new Date(Number(String(timestamp).slice(0, 13)));
-        }
+        const timestamp = +row.created_at;
+        const createdAt: Date = new Date(timestamp);
 
         envelopes.push(new DomainEnvelope<DomainModeration>(
           row.envelope_id,

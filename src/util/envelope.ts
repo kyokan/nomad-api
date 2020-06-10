@@ -30,8 +30,13 @@ export const mapWireToEnvelope = async (tld: string, subdomain: string, wire: Wi
     additionalData,
   } = wire;
 
+  // wire.additionalData = wire.additionalData?.length ? wire.additionalData : null;
+  wire.timestamp = new Date(Math.floor(timestamp.getTime() / 1000) * 1000);
+
   const refhashBuf = await createRefhash(wire, '', tld);
   const refhash = refhashBuf.toString('hex');
+  const createdAt = new Date(timestamp);
+
   const msgType = message.type.toString('utf-8');
 
   switch (msgType) {
@@ -42,7 +47,7 @@ export const mapWireToEnvelope = async (tld: string, subdomain: string, wire: Wi
         subdomain,
         id,
         refhash,
-        timestamp,
+        createdAt,
         mapWirePostToDomainPost(message as WirePost),
         additionalData,
       );
@@ -53,7 +58,7 @@ export const mapWireToEnvelope = async (tld: string, subdomain: string, wire: Wi
         subdomain,
         id,
         refhash,
-        timestamp,
+        createdAt,
         mapWireConnectionToDomainConnection(message as WireConnection),
         additionalData,
       );
@@ -64,7 +69,7 @@ export const mapWireToEnvelope = async (tld: string, subdomain: string, wire: Wi
         subdomain,
         id,
         refhash,
-        timestamp,
+        createdAt,
         mapWireModerationToDomainModeration(message as WireModeration),
         additionalData,
       );
@@ -75,7 +80,7 @@ export const mapWireToEnvelope = async (tld: string, subdomain: string, wire: Wi
         subdomain,
         id,
         refhash,
-        timestamp,
+        createdAt,
         mapWirePostToDomainMedia(message as WireMedia),
         additionalData,
       );
@@ -238,6 +243,8 @@ export async function createEnvelope(tld: string, params: WriterEnvelopeParams):
 
   if (!networkId || !refhash || !createAt) return undefined;
 
+  const createdAt = new Date(createAt.toISOString().split('.')[0]+"Z");
+
   if (post) {
     envelope = new DomainEnvelope(
       0,
@@ -245,7 +252,7 @@ export async function createEnvelope(tld: string, params: WriterEnvelopeParams):
       null,
       networkId,
       refhash,
-      createAt,
+      createdAt,
       new DomainPost(
         0,
         post.body,
@@ -268,7 +275,7 @@ export async function createEnvelope(tld: string, params: WriterEnvelopeParams):
       null,
       networkId,
       refhash,
-      createAt,
+      createdAt,
       new DomainConnection(
         0,
         connection.tld,
@@ -286,7 +293,7 @@ export async function createEnvelope(tld: string, params: WriterEnvelopeParams):
       null,
       networkId,
       refhash,
-      createAt,
+      createdAt,
       new DomainModeration(
         0,
         moderation.reference,
@@ -303,7 +310,7 @@ export async function createEnvelope(tld: string, params: WriterEnvelopeParams):
       null,
       networkId,
       refhash,
-      createAt,
+      createdAt,
       new DomainMedia(
         0,
         media.filename,

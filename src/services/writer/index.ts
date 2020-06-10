@@ -17,6 +17,7 @@ import {SubdomainDBRow, SubdomainManager} from "../subdomains";
 import {createEnvelope, mapBodyToEnvelope} from "../../util/envelope";
 import {BufferedReader} from "ddrp-js/dist/io/BufferedReader";
 import {BlobReader} from "ddrp-js/dist/ddrp/BlobReader";
+import {Envelope as DomainEnvelope} from 'ddrp-indexer/dist/domain/Envelope';
 import {decrypt} from "../../util/key";
 
 const jsonParser = bodyParser.json();
@@ -85,15 +86,16 @@ export class Writer {
 
     await this.reconstructSubdomainSectors(tld, createdAt, false, oldSubs);
 
-
     let offset = 64 * 1024;
 
     for (let i = 0; i < envs.length; i++) {
+      const env: DomainEnvelope<any> = envs[i];
       const shouldBroadcast = broadcast && i === envs.length - 1;
       const nameIndex = await this.subdomains.getNameIndex(envs[i]?.subdomain, tld);
+
       const endOffset = await this.appendEnvelope(
         tld,
-        envs[i].toWire(nameIndex),
+        env.toWire(nameIndex),
         createdAt,
         shouldBroadcast,
         offset,

@@ -231,7 +231,7 @@ export class SubdomainManager {
         return res.status(400).send(makeResponse('invalid request', true));
       }
 
-      const createAt = timestamp ? new Date(timestamp) : new Date();
+      const createAt = timestamp ? new Date(timestamp) : new Date(Math.floor(Date.now()/1000));
 
       if (!sessionName) {
         if (signature && public_key) {
@@ -305,6 +305,7 @@ export class SubdomainManager {
     const subdomain = sessionName ? sessionSubdomain : signedSubdomain;
 
     const mod = { type, reference };
+    const createAt = timestamp ? new Date(timestamp) : new Date(Math.floor(Date.now()/1000));
 
     try {
       const { public_key = '' } = await this.getSubdomain(tld, subdomain) || {};
@@ -318,9 +319,10 @@ export class SubdomainManager {
         return res.status(400).send(makeResponse('invalid reqest', true));
       }
 
+
       if (!sessionName) {
         if (signature && public_key) {
-          const hash = hashModerationBody(mod, new Date(timestamp));
+          const hash = hashModerationBody(mod, createAt);
 
           // @ts-ignore
           const verfied = secp256k1.verify(
@@ -337,7 +339,6 @@ export class SubdomainManager {
         }
       }
 
-      const createAt = new Date(timestamp);
       const env = await mapBodyToEnvelope(tld, {
         moderation: {
           type,
@@ -392,6 +393,8 @@ export class SubdomainManager {
       type: type || 'FOLLOW',
     };
 
+    const createAt = timestamp ? new Date(timestamp) : new Date(Math.floor(Date.now()/1000));
+
     try {
       const { public_key = '' } = await this.getSubdomain(tld, subdomain) || {};
       const nameIndex = await this.getNameIndex(subdomain, tld);
@@ -406,7 +409,7 @@ export class SubdomainManager {
 
       if (!sessionName) {
         if (signature && public_key) {
-          const hash = hashConnectionBody(conn, new Date(timestamp));
+          const hash = hashConnectionBody(conn, createAt);
 
           // @ts-ignore
           const verfied = secp256k1.verify(
@@ -423,7 +426,6 @@ export class SubdomainManager {
         }
       }
 
-      const createAt = new Date(timestamp);
       const env = await mapBodyToEnvelope(tld, {
         connection: conn,
         createAt,
@@ -470,8 +472,7 @@ export class SubdomainManager {
     const tld = sessionName ? sessionTLD :  signedTLD;
     const subdomain = sessionName ? sessionSubdomain : signedSubdomain;
 
-    const createAt = timestamp ? new Date(timestamp) : new Date();
-
+    const createAt = timestamp ? new Date(timestamp) : new Date(Math.floor(Date.now()/1000));
 
     // @ts-ignore
     const files = req.files || {};
