@@ -80,17 +80,14 @@ export class IndexerManager {
   mediaDao?: MediaDAOImpl;
   client: DDRPDClient;
   engine: SqliteEngine;
-  pendingDB: SqliteEngine;
   pgClient?: PostgresAdapter;
   dbPath: string;
-  pendingDbPath: string;
   resourcePath: string;
 
   constructor(opts?: {
     dbPath?: string;
     namedbPath?: string;
     resourcePath?: string;
-    pendingDbPath?: string;
     pgClient?: PostgresAdapter;
   }) {
     const client = new DDRPDClient('127.0.0.1:9098');
@@ -98,9 +95,7 @@ export class IndexerManager {
 
     this.pgClient = opts?.pgClient;
     this.engine = new SqliteEngine(opts?.dbPath || dbPath);
-    this.pendingDB = new SqliteEngine(opts?.pendingDbPath || pendingDbPath);
     this.dbPath = opts?.dbPath || dbPath;
-    this.pendingDbPath = opts?.pendingDbPath || pendingDbPath;
     this.resourcePath = opts?.resourcePath || 'resources';
   }
 
@@ -696,53 +691,6 @@ export class IndexerManager {
     };
   };
 
-  getPendingPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
-    const envelopes: DomainEnvelope<DomainPost>[] = [];
-    const offset = defaultOffset || 0;
-
-    this.pendingDB.each(`
-      SELECT * FROM posts p
-      WHERE ((p.reference = "" OR p.reference IS NULL) AND (p.topic NOT LIKE ".%" OR p.topic = "" OR p.topic IS NULL))
-      ORDER BY timestamp ${order}
-      LIMIT @limit
-      OFFSET @start
-    `, {
-      start: offset,
-      limit,
-    }, row => {
-      const env = new DomainEnvelope(
-        0,
-        row.tld,
-        row.username,
-        row.network_id,
-        row.refhash,
-        new Date(row.timestamp),
-        new DomainPost(
-          0,
-          row.body,
-          '',
-          row.reference,
-          row.topic,
-          [],
-          0,
-          0,
-          0,
-        ),
-        null,
-      );
-      envelopes.push(env);
-    });
-
-    if (envelopes.length < limit) {
-      return new Pageable<DomainEnvelope<DomainPost>, number>(envelopes, -1);
-    }
-
-    return new Pageable<DomainEnvelope<DomainPost>, number>(
-      envelopes,
-      envelopes.length,
-    );
-  };
-
   getPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
     if (this.pgClient) return this.pgClient.getPosts(order, limit, defaultOffset);
     const envelopes: DomainEnvelope<DomainPost>[] = [];
@@ -995,63 +943,7 @@ export class IndexerManager {
     );
   }
 
-  deletePendingPost = async (networkId: string): Promise<any> => {
-    this.pendingDB.exec(`
-        DELETE FROM posts
-        WHERE posts.network_id = @networkId
-      `,{
-      networkId: networkId,
-    });
-  };
-
-  insertPendingPost = async (tld: string, envelope: DomainEnvelope<DomainPost>): Promise<any> => {
-    return this.pendingDB.exec(`
-        INSERT INTO posts (network_id, refhash, username, tld, timestamp, reference, body, topic)
-        VALUES (@networkId, @refhash, @username, @tld, @timestamp, @reference, @body, @topic)
-      `,{
-      networkId: envelope.networkId,
-      refhash: envelope.refhash,
-      username: envelope.subdomain || '',
-      tld: envelope.tld,
-      timestamp: new Date(envelope.createdAt).getTime(),
-      reference: envelope.message.reference,
-      body: envelope.message.body,
-      topic: envelope.message.topic,
-    });
-  };
-
-  insertPendingModeration = async (tld: string, envelope: DomainEnvelope<DomainModeration>): Promise<any> => {
-    return this.pendingDB.exec(`
-        INSERT INTO moderations (network_id, refhash, username, tld, timestamp, reference, type)
-        VALUES (@networkId, @refhash, @username, @tld, @timestamp, @reference, @type)
-      `,{
-      networkId: envelope.networkId,
-      refhash: envelope.refhash,
-      username: envelope.subdomain || '',
-      tld: envelope.tld,
-      timestamp: new Date(envelope.createdAt).getTime(),
-      reference: envelope.message.reference,
-      type: envelope.message.type,
-    });
-  };
-
-  insertPendingConnection = async (tld: string, envelope: DomainEnvelope<DomainConnection>): Promise<any> => {
-    return this.pendingDB.exec(`
-        INSERT INTO connections (network_id, refhash, username, tld, timestamp, connectee_tld, connectee_subdomain, type)
-        VALUES (@networkId, @refhash, @username, @tld, @timestamp, @connectee_tld, @connectee_subdomain, @type)
-      `,{
-      networkId: envelope.networkId,
-      refhash: envelope.refhash,
-      username: envelope.subdomain || '',
-      tld: envelope.tld,
-      timestamp: new Date(envelope.createdAt).getTime(),
-      connectee_tld: envelope.message.tld,
-      connectee_subdomain: envelope.message.subdomain,
-      type: envelope.message.type,
-    });
-  };
-
-  insertPost = async (tld: string, wire: WireEnvelope, subdomains: SubdomainDBRow[] = [], _client?: any): Promise<any> => {
+  insertPost = async (tld: string, wire: WireEnvelope, subdomains: SubdomainDBRow[] = []): Promise<any> => {
     const nameIndex = wire.nameIndex;
     const subdomain = subdomains[nameIndex];
 
@@ -1077,19 +969,19 @@ export class IndexerManager {
       switch (message.type.toString('utf-8')) {
         case Post.TYPE.toString('utf-8'):
           return this.pgClient
-            ? await this.pgClient.insertPost(domainEnvelope as DomainEnvelope<DomainPost>, _client)
+            ? await this.pgClient.insertPost(domainEnvelope as DomainEnvelope<DomainPost>)
             : await this.postsDao?.insertPost(domainEnvelope as DomainEnvelope<DomainPost>);
         case Connection.TYPE.toString('utf-8'):
           return this.pgClient
-            ? await this.pgClient.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>, _client)
+            ? await this.pgClient.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>)
             : await this.connectionsDao?.insertConnection(domainEnvelope as DomainEnvelope<DomainConnection>);
         case Moderation.TYPE.toString('utf-8'):
           return this.pgClient
-            ? await this.pgClient.insertModeration(domainEnvelope as DomainEnvelope<DomainModeration>, _client)
+            ? await this.pgClient.insertModeration(domainEnvelope as DomainEnvelope<DomainModeration>)
             : await this.moderationsDao?.insertModeration(domainEnvelope as DomainEnvelope<DomainModeration>);
         case Media.TYPE.toString('utf-8'):
           return this.pgClient
-            ? await this.pgClient.insertMedia(domainEnvelope as DomainEnvelope<DomainMedia>, _client)
+            ? await this.pgClient.insertMedia(domainEnvelope as DomainEnvelope<DomainMedia>)
             : await this.mediaDao?.insertMedia(domainEnvelope as DomainEnvelope<DomainMedia>);
         default:
           return;
@@ -1419,7 +1311,6 @@ export class IndexerManager {
 
   private scanBlobData = async (r: BufferedReader, tld: string, subdomains: SubdomainDBRow[]) => {
     let timeout: any | undefined;
-    let client: any;
 
     return new Promise(async (resolve, reject) => {
       logger.info(`scan blob data`, { tld });
@@ -1442,7 +1333,7 @@ export class IndexerManager {
           return false;
         }
 
-        client = await this.insertPost(tld, env, subdomains);
+        await this.insertPost(tld, env, subdomains);
 
         logger.info('scanned envelope', { tld, network_id: env.id });
 
@@ -1465,7 +1356,6 @@ export class IndexerManager {
     }
 
     await this.engine.open();
-    await this.pendingDB.open();
     this.postsDao = new PostsDAOImpl(this.engine);
     this.connectionsDao = new ConnectionsDAOImpl(this.engine);
     this.moderationsDao = new ModerationsDAOImpl(this.engine);
@@ -1486,9 +1376,7 @@ export class IndexerManager {
 
   private async copyDB () {
     const nomadSrc = path.join(this.resourcePath, 'nomad.db');
-    const pendingSrc = path.join(this.resourcePath, 'pending.db');
     await fs.promises.copyFile(nomadSrc, this.dbPath);
-    await fs.promises.copyFile(pendingSrc, this.pendingDbPath);
   }
 
   async readAllTLDs(): Promise<string[]> {

@@ -216,8 +216,8 @@ export class SubdomainManager {
       reference,
     };
 
-    const tld = signedTLD || sessionTLD;
-    const subdomain = signedSubdomain || sessionSubdomain;
+    const tld = sessionName ? sessionTLD :  signedTLD;
+    const subdomain = sessionName ? sessionSubdomain : signedSubdomain;
 
     try {
       const { public_key = '' } = await this.getSubdomain(tld, subdomain) || {};
@@ -301,8 +301,8 @@ export class SubdomainManager {
     const sessionName = await this.verifySession(sessionToken);
     const { tld: sessionTLD, subdomain: sessionSubdomain } = parseUsername(sessionName);
     const { tld: signedTLD, subdomain: signedSubdomain, signature } = sig || {};
-    const tld = signedTLD || sessionTLD;
-    const subdomain = signedSubdomain || sessionSubdomain;
+    const tld = sessionName ? sessionTLD :  signedTLD;
+    const subdomain = sessionName ? sessionSubdomain : signedSubdomain;
 
     const mod = { type, reference };
 
@@ -384,8 +384,8 @@ export class SubdomainManager {
     const sessionName = await this.verifySession(sessionToken);
     const { tld: sessionTLD, subdomain: sessionSubdomain } = parseUsername(sessionName);
     const { tld: signedTLD, subdomain: signedSubdomain, signature } = sig || {};
-    const tld = signedTLD || sessionTLD;
-    const subdomain = signedSubdomain || sessionSubdomain;
+    const tld = sessionName ? sessionTLD :  signedTLD;
+    const subdomain = sessionName ? sessionSubdomain : signedSubdomain;
     const conn: ConnectionBody = {
       tld: connectee_tld,
       subdomain: connectee_subdomain || '',
@@ -467,8 +467,11 @@ export class SubdomainManager {
     const sessionToken = req.headers['x-api-token'];
     const sessionName = await this.verifySession(sessionToken);
     const { tld: sessionTLD, subdomain: sessionSubdomain } = parseUsername(sessionName);
-    const tld = signedTLD || sessionTLD;
-    const subdomain = signedSubdomain || sessionSubdomain;
+    const tld = sessionName ? sessionTLD :  signedTLD;
+    const subdomain = sessionName ? sessionSubdomain : signedSubdomain;
+
+    const createAt = timestamp ? new Date(timestamp) : new Date();
+
 
     // @ts-ignore
     const files = req.files || {};
@@ -494,7 +497,7 @@ export class SubdomainManager {
 
       if (!sessionName) {
         if (signature && public_key) {
-          const hash = hashMediaBody(mediaBody, new Date(timestamp));
+          const hash = hashMediaBody(mediaBody, createAt);
 
           // @ts-ignore
           const verfied = secp256k1.verify(
@@ -511,7 +514,6 @@ export class SubdomainManager {
         }
       }
 
-      const createAt = new Date(timestamp);
       const env = await mapBodyToEnvelope(tld, {
         media: mediaBody,
         createAt,
