@@ -566,7 +566,6 @@ export class SubdomainManager {
 
       const expiry = Date.now() + (1000 * 60 * 60 * 24);
       const sessionKey = await createSessionKey(username, expiry);
-
       await this.addSession(username, sessionKey, expiry);
 
       res.send(makeResponse({

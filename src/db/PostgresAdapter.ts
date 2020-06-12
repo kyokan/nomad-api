@@ -438,6 +438,103 @@ export default class PostgresAdapter {
     }
   };
 
+  getUserChannels = async (username: string, order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (limit <= 0) {
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+
+    const client = await this.pool.connect();
+    const { tld, subdomain } = parseUsername(username);
+
+    try {
+      const envelopes: DomainEnvelope<DomainPost>[] = [];
+      const offset = defaultOffset || 0;
+
+      const {rows} = await client.query(`
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+        WHERE (p.reference is NULL AND p.topic = '.channel' AND e.tld = $3 AND e.subdomain = $4)
+        ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
+        LIMIT $1 OFFSET $2
+    `, [
+        limit,
+        offset,
+        tld,
+        subdomain,
+      ]);
+
+      for (let i = 0; i < rows.length; i++) {
+        const post = await this.mapPost(rows[i], true, client);
+        if (post) {
+          envelopes.push(post);
+        }
+      }
+
+      client.release();
+
+      if (!envelopes.length) {
+        return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+      }
+
+      return new Pageable<DomainEnvelope<DomainPost>, number>(
+        envelopes,
+        envelopes.length + Number(offset),
+      );
+    } catch (e) {
+      logger.error('error getting comments', e);
+      client.release();
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+  };
+
+  getChannels = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (limit <= 0) {
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+
+    const client = await this.pool.connect();
+
+    try {
+      const envelopes: DomainEnvelope<DomainPost>[] = [];
+      const offset = defaultOffset || 0;
+
+      const {rows} = await client.query(`
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+        WHERE (p.reference is NULL AND (p.topic = '.channel'))
+        ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
+        LIMIT $1 OFFSET $2
+    `, [
+        limit,
+        offset,
+      ]);
+
+      for (let i = 0; i < rows.length; i++) {
+        const post = await this.mapPost(rows[i], true, client);
+        if (post) {
+          envelopes.push(post);
+        }
+      }
+
+      client.release();
+
+      if (!envelopes.length) {
+        return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+      }
+
+      return new Pageable<DomainEnvelope<DomainPost>, number>(
+        envelopes,
+        envelopes.length + Number(offset),
+      );
+    } catch (e) {
+      logger.error('error getting comments', e);
+      client.release();
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+  };
+
   getCommentsByHash = async (reference: string | null, order?: 'ASC' | 'DESC', limit = 20,  defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
     if (limit <= 0) {
       return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);

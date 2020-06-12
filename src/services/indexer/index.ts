@@ -218,6 +218,20 @@ export class IndexerManager {
       res.send(makeResponse(hash));
     },
 
+    '/users/:username/channels': async (req: Request, res: Response) => {
+      trackAttempt('Get User Channels', req, req.params.username);
+      const { order, limit, offset } = req.query || {};
+      const posts = await this.getUserChannels(req.params.username, order, limit, offset);
+      res.send(makeResponse(posts));
+    },
+
+    '/channels': async (req: Request, res: Response) => {
+      trackAttempt('Get Channels', req);
+      const { order, limit, offset } = req.query || {};
+      const posts = await this.getChannels(order, limit, offset);
+      res.send(makeResponse(posts));
+    },
+
     '/avatars/:sprite/:seed.svg': async (req: Request, res: Response) => {
       try {
         const { sprite, seed } = req.params;
@@ -292,7 +306,7 @@ export class IndexerManager {
         res.status(500);
         res.send(e.message);
       }
-    }
+    },
   };
 
   setRoutes = (app: Express) => {
@@ -310,6 +324,8 @@ export class IndexerManager {
     app.get('/users/:username/blockees', this.handlers['/users/:username/blockees']);
     app.get('/users/:username/uploads', this.handlers['/users/:username/uploads']);
     app.get('/users/:username/profile', this.handlers['/users/:username/profile']);
+    app.get('/users/:username/channels', this.handlers['/users/:username/channels']);
+    app.get('/channels', this.handlers['/channels']);
     app.get('/avatars/:sprite/:seed.svg', this.handlers['/avatars/:sprite/:seed.svg']);
     app.get('/media/:refhash', this.handlers['/media/:refhash']);
     app.get('/trending/tags', this.handlers['/trending/tags']);
@@ -701,6 +717,67 @@ export class IndexerManager {
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
         WHERE (p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL))
+        ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
+        LIMIT @limit OFFSET @start
+    `, {
+      start: offset,
+      limit,
+    }, (row) => {
+      envelopes.push(this.mapPost(row, true));
+    });
+
+    if (!envelopes.length) {
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+
+    return new Pageable<DomainEnvelope<DomainPost>, number>(
+      envelopes,
+      envelopes.length + Number(offset),
+    );
+  };
+
+  getUserChannels = async (username: string, order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (this.pgClient) return this.pgClient.getUserChannels(username, order, limit, defaultOffset);
+    const { tld, subdomain } = parseUsername(username);
+    const envelopes: DomainEnvelope<DomainPost>[] = [];
+    const offset = defaultOffset || 0;
+
+    this.engine.each(`
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+        WHERE (p.reference is NULL AND p.topic = '.channel' AND e.tld = @tld AND e.subdomain = @subdomain)
+        ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
+        LIMIT @limit OFFSET @start
+    `, {
+      start: offset,
+      limit,
+      tld,
+      subdomain,
+    }, (row) => {
+      envelopes.push(this.mapPost(row, true));
+    });
+
+    if (!envelopes.length) {
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+
+    return new Pageable<DomainEnvelope<DomainPost>, number>(
+      envelopes,
+      envelopes.length + Number(offset),
+    );
+  };
+
+  getChannels = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (this.pgClient) return this.pgClient.getChannels(order, limit, defaultOffset);
+    const envelopes: DomainEnvelope<DomainPost>[] = [];
+    const offset = defaultOffset || 0;
+
+    this.engine.each(`
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+        WHERE (p.reference is NULL AND (p.topic = '.channel'))
         ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
         LIMIT @limit OFFSET @start
     `, {
