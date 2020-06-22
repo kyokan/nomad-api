@@ -339,8 +339,8 @@ export class IndexerManager {
     app.get('/users/:username/blockees', this.handlers['/users/:username/blockees']);
     app.get('/users/:username/uploads', this.handlers['/users/:username/uploads']);
     app.get('/users/:username/profile', this.handlers['/users/:username/profile']);
-    app.get('/users/:username/channels', this.handlers['/users/:username/channels']);
-    app.get('/channels', this.handlers['/channels']);
+    // app.get('/users/:username/channels', this.handlers['/users/:username/channels']);
+    // app.get('/channels', this.handlers['/channels']);
     app.get('/avatars/:sprite/:seed.svg', this.handlers['/avatars/:sprite/:seed.svg']);
     app.get('/media/:refhash', this.handlers['/media/:refhash']);
     app.get('/trending/tags', this.handlers['/trending/tags']);
