@@ -48,6 +48,9 @@ import {mapWireToEnvelope} from "../../util/envelope";
 import crypto from 'crypto';
 import {SubdomainDBRow} from "../subdomains";
 import PostgresAdapter from "../../db/PostgresAdapter";
+import {addFileToIPFS, getNode} from "../../util/ipfs";
+import {addFileToWebTorrent, getClient} from "../../util/webtorrent";
+const FileType = require("file-type");
 
 const SPRITE_TO_SPRITES: {[sprite: string]: any} = {
   identicon: Identicon,
@@ -100,6 +103,17 @@ export class IndexerManager {
   }
 
   handlers = {
+    '/channel-posts': async (req: Request, res: Response) => {
+      trackAttempt('Get All Channel Posts', req);
+      try {
+        const { order, offset, limit } = req.query || {};
+        const posts = await this.getChannelPosts(order, limit, offset);
+        res.send(makeResponse(posts));
+      } catch (e) {
+        res.status(500).send(makeResponse(e.message, true));
+      }
+    },
+
     '/posts': async (req: Request, res: Response) => {
       trackAttempt('Get All Posts', req);
       try {
@@ -263,7 +277,7 @@ export class IndexerManager {
         const { refhash } = req.params;
 
         if (IMAGE_CACHE[refhash]) {
-          res.set('Content-Disposition', `attachment; filename=${IMAGE_CACHE[refhash].filename}`);
+          // res.set('Content-Disposition', `attachment; filename=${encodeURI(IMAGE_CACHE[refhash].filename)}`);
           res.set({'Content-Type': IMAGE_CACHE[refhash].type});
           res.send(IMAGE_CACHE[refhash].data);
           return;
@@ -275,7 +289,7 @@ export class IndexerManager {
           return res.status(404).send();
         }
 
-        res.set('Content-Disposition', `attachment; filename=${media.filename}`);
+        // res.set('Content-Disposition', `attachment; filename=${encodeURI(media.filename)}`);
         res.set({'Content-Type': media.mime_type});
         res.send(media.content);
       } catch (e) {
@@ -310,6 +324,7 @@ export class IndexerManager {
   };
 
   setRoutes = (app: Express) => {
+    // app.get('/channel-posts', this.handlers['/channel-posts']);
     app.get('/posts', this.handlers['/posts']);
     app.get('/posts/:hash', this.handlers['/posts/:hash']);
     app.get('/posts/:hash/comments', this.handlers['/posts/:hash/comments']);
@@ -330,6 +345,56 @@ export class IndexerManager {
     app.get('/media/:refhash', this.handlers['/media/:refhash']);
     app.get('/trending/tags', this.handlers['/trending/tags']);
     app.get('/trending/users', this.handlers['/trending/users']);
+
+    // app.get('/ipfs/:ipfsHash', async (req: Request, res: Response) => {
+    //   try {
+    //     const { ipfsHash } = req.params;
+    //     const ipfs = await getNode();
+    //
+    //     const chunks = [];
+    //     for await (const chunk of ipfs.cat(ipfsHash)) {
+    //       chunks.push(chunk)
+    //     }
+    //
+    //     const buf = Buffer.concat(chunks);
+    //     const { mime } = FileType(buf) || {};
+    //
+    //     if (!chunks.length) {
+    //       return res.status(404).send();
+    //     }
+    //
+    //     // res.set('Content-Disposition', `attachment; filename=${ipfsHash}.${ext}`);
+    //     res.set({'Content-Type': mime });
+    //     res.send(buf);
+    //   } catch (e) {
+    //     res.status(500);
+    //     res.send(e.message);
+    //   }
+    // })
+    //
+    // app.post('/video/upload', async (req, res) => {
+    //   try {
+    //     const {
+    //       filename,
+    //     } = req.body;
+    //     // @ts-ignore
+    //     const files = req.files || {};
+    //     const file = files.file;
+    //
+    //     const ipfs = await addFileToIPFS(filename, file.data);
+    //
+    //     const magnet = await addFileToWebTorrent(filename, file.data);
+    //
+    //     res.send(makeResponse({
+    //       ipfs,
+    //       magnet,
+    //     }));
+    //   } catch (e) {
+    //     console.log(e);
+    //     res.status(500).send(makeResponse(e.message, true));
+    //   }
+    //
+    // });
   };
 
   getUserBlocks = async (username: string, order: 'ASC' | 'DESC' = 'ASC', limit = 20, start = 0): Promise<Pageable<DomainBlock, number>> => {
@@ -705,6 +770,35 @@ export class IndexerManager {
       blockings,
       blockers,
     };
+  };
+
+  getChannelPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (this.pgClient) return this.pgClient.getChannelPosts(order, limit, defaultOffset);
+    const envelopes: DomainEnvelope<DomainPost>[] = [];
+    const offset = defaultOffset || 0;
+
+    this.engine.each(`
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+        WHERE (p.reference is NULL AND p.topic = 'channelpost')
+        ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
+        LIMIT @limit OFFSET @start
+    `, {
+      start: offset,
+      limit,
+    }, (row) => {
+      envelopes.push(this.mapPost(row, true));
+    });
+
+    if (!envelopes.length) {
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+
+    return new Pageable<DomainEnvelope<DomainPost>, number>(
+      envelopes,
+      envelopes.length + Number(offset),
+    );
   };
 
   getPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {

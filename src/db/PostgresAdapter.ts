@@ -195,6 +195,7 @@ export default class PostgresAdapter {
 
       if (!exists) {
         const envelopeId: number = await this.insertEnvelope(env, client);
+
         const {
           rows: [{id: postId}]
         } = await client.query(`
@@ -390,6 +391,53 @@ export default class PostgresAdapter {
 
     return env;
   }
+
+  getChannelPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (limit <= 0) {
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+
+    const client = await this.pool.connect();
+
+    try {
+      const envelopes: DomainEnvelope<DomainPost>[] = [];
+      const offset = defaultOffset || 0;
+
+      const {rows} = await client.query(`
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+        WHERE p.topic = 'channelpost'
+        ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
+        LIMIT $1 OFFSET $2
+    `, [
+        limit,
+        offset,
+      ]);
+
+      for (let i = 0; i < rows.length; i++) {
+        const post = await this.mapPost(rows[i], true, client);
+        if (post) {
+          envelopes.push(post);
+        }
+      }
+
+      client.release();
+
+      if (!envelopes.length) {
+        return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+      }
+
+      return new Pageable<DomainEnvelope<DomainPost>, number>(
+        envelopes,
+        envelopes.length + Number(offset),
+      );
+    } catch (e) {
+      logger.error('error getting comments', e);
+      client.release();
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+  };
 
   getPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
     if (limit <= 0) {

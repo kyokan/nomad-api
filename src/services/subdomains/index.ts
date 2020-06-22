@@ -263,6 +263,8 @@ export class SubdomainManager {
         nameIndex,
       });
 
+
+
       if (!env) {
         return res.status(403).send(makeResponse('invalid post', true));
       }
