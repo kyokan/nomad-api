@@ -32,7 +32,7 @@ export class RestServer {
     this.app.use(cors(corsOptions));
     this.app.use(requestIp.mw());
     this.app.use(fileUpload());
-    this.app.use('/', express.static('./build'));
+    this.app.use('/', express.static('./build-doc'));
     this.app.use('/docs', express.static('./build-doc'));
     this.app.use(async (req, res, next) => {
       if (req.path.slice(0, 5) === '/docs') {
