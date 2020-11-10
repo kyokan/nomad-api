@@ -6,9 +6,8 @@ import {SubdomainManager} from "./services/subdomains";
 import {makeResponse} from "./util/rest";
 import Timeout = NodeJS.Timeout;
 import {Writer} from "./services/writer";
-// @ts-ignore
 import config from "../config.json";
-import PostgresAdapter, {PostgresAdapterOpts} from "./db/PostgresAdapter";
+import PostgresAdapter from "./db/PostgresAdapter";
 const SERVICE_KEY = process.env.SERVICE_KEY;
 
 const jsonParser = bodyParser.json();

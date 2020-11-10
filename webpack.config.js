@@ -46,7 +46,7 @@ module.exports = [
   },
   {
     mode: isProd ? 'production' : 'development',
-    entry: './src/dev/harness.ts',
+    entry: './dev/harness.ts',
     target: 'web',
     // externals: [nodeExternals()],
     resolve: {

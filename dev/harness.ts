@@ -1,9 +1,9 @@
-import {RestServerResponse} from "../util/rest";
-import SECP256k1Signer from 'fn-client/dist/crypto/signer'
+import {RestServerResponse} from "../src/util/rest";
+import SECP256k1Signer from 'fn-client/lib/crypto/signer'
 import secp256k1 from "secp256k1";
-import {generateNewCompressedKey} from "../util/key";
-import {hashConnectionBody, hashMediaBody, hashModerationBody, hashPostBody} from "../util/envelope";
-import {ConnectionBody, ModerationBody} from "../constants";
+import {generateNewCompressedKey} from "../src/util/key";
+import {hashConnectionBody, hashMediaBody, hashModerationBody, hashPostBody} from "../src/util/envelope";
+import {ConnectionBody, ModerationBody} from "../src/constants";
 healthCheck();
 
 
@@ -58,6 +58,7 @@ healthCheck();
   const fileupload = document.getElementById("fileupload");
   fileupload!.onchange = async (e) => {
     const timestamp = Date.now();
+    // @ts-ignore
     const [file]: File[] = e?.target?.files || [];
     const formData = new FormData();
     formData.append('file', file);
@@ -97,6 +98,7 @@ healthCheck();
 
 async function connect(tld: string, subdomain: string) {
   const postBody: ConnectionBody = {
+    // @ts-ignore
     "connectee_tld": tld,
     "connectee_subdomain": subdomain,
     "tld": tld,

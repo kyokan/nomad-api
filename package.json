@@ -1,12 +1,13 @@
 {
   "name": "nomad-api",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "description": "",
   "main": "build/index.js",
   "scripts": {
     "build-indexer-api": "webpack --config ./webpack.config.js --inline",
     "watch-indexer-api": "NODE_ENV=development webpack --config ./webpack.config.js --inline --watch",
     "nodemon-indexer-api": "nodemon ./build/index.js",
+    "build-lib": "tsc -p ./tsconfig.json",
     "dev": "concurrently --kill-others-on-fail npm:watch-indexer-api npm:nodemon-indexer-api",
     "dev-doc": "webpack-dev-server --config webpack.ui.config.js --hot --inline --port 8083",
     "build-doc": "NODE_ENV=production webpack --config webpack.ui.config.js --inline",
@@ -92,5 +93,8 @@
     "secure-random": "^1.1.2",
     "webtorrent": "^0.108.6",
     "winston": "^3.2.1"
-  }
+  },
+  "files": [
+    "lib/src/**/*"
+  ]
 }

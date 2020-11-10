@@ -6,3 +6,6 @@ build-doc/
 resources/ddrpd-*
 **/**/.DS_Store
 config.json
+lib/
+**/**/*.js
+**/**/*.js.map
