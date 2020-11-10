@@ -3,7 +3,7 @@
 Returns all replies made by a user.
 
 ### Resource URL
-`https://api.nomadweb.io/users/:username/comments`
+`https://api.nmd.co/users/:username/comments`
 
 ### Path Parameters
 | Name | Required | Description |
@@ -20,30 +20,31 @@ Returns all replies made by a user.
 ### Sample Response
 
 ```typescript
-// curl https://api.nomadweb.io/users/@4813/comments?order=DESC&limit=1
 {
-  "items": [
-    {
-      "post": {
-        "tld": "4813.",
-        "subdomain": null,
-        "guid": "834ff915b0b64151aee40fd581df63ab",
-        "timestamp": "2020-03-28T05:39:27.000Z",
-        "parent": "9b095edbf6ac030e61582bbd6cc0c2d1b548eac012b0f9030b3f1810c65311bb",
-        "context": null,
-        "content": "yep verified\n",
-        "topic": "",
-        "tags": [
-          
-        ]
-      },
-      "meta": {
-        "replyCount": 0,
-        "likeCount": 0,
-        "pinCount": 0
-      }
+    "payload": {
+        "items": [
+            {
+                "id": 6,
+                "tld": "kyokan",
+                "subdomain": "",
+                "networkId": "",
+                "refhash": "ec60461b1c80006d9ca70327714de3dc69bebb5ec70eded85a38300d3c8743ca6b796f6b616e",
+                "createdAt": "2020-11-09T05:39:57.000Z",
+                "message": {
+                    "id": 6,
+                    "body": "\"We can make openness irrevocable.\" - [](http://brewster.kahle.org/2015/08/11/locking-the-web-open-a-call-for-a-distributed-web-2/)\n",
+                    "title": null,
+                    "reference": null,
+                    "topic": null,
+                    "tags": [],
+                    "replyCount": 0,
+                    "likeCount": 1,
+                    "pinCount": 0
+                },
+                "additionalData": null
+            }
+        ],
+        "next": 6
     }
-  ],
-  "next": null
 }
 ```

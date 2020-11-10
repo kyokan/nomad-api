@@ -3,7 +3,7 @@
 Returns list of all users blocked by a user.
 
 ### Resource URL
-`https://api.nomadweb.io/users/:username/blockees`
+`https://api.nmd.co/users/:username/blockees`
 
 ### Path Parameters
 | Name | Required | Description |
@@ -20,18 +20,18 @@ Returns list of all users blocked by a user.
 ### Sample Response
 
 ```typescript
-// curl https://api.nomadweb.io/users/@4813/blockees?order=ASC&limit=1
 {
-  "items": [
-    {
-      "tld": "4813.",
-      "subdomain": null,
-      "guid": "69a1b8a050a649db93642183a8075a4a",
-      "timestamp": "2020-03-23T02:51:19.000Z",
-      "blockeeTld": "2062",
-      "blockeeSubdomain": "test-cross-platform"
-    }
-  ],
-  "next": null
+  "payload": {
+    "items": [
+      {
+        "tld": "4813",
+        "subdomain": null,
+        "timestamp": "2020-03-23T06:11:40.000Z",
+        "blockeeTld": "9325",
+        "blockeeSubdomain": null
+      }
+    ],
+    "next": null
+  }
 }
 ```

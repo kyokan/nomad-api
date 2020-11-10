@@ -3,7 +3,7 @@
 Returns user's profile info.
 
 ### Resource URL
-`https://api.nomadweb.io/users/:username/profile`
+`https://api.nmd.co/users/:username/profile`
 
 ### Path Parameters
 | Name | Required | Description |
@@ -13,12 +13,13 @@ Returns user's profile info.
 ### Sample Response
 
 ```typescript
-// curl https://api.nomadweb.io/users/@whogonnastopme.9411/profile
 {
-  "profilePicture": "",
-  "coverImage": "",
-  "bio": "The Strongest Decoy 🏐\n",
-  "avatarType": "jdenticon\n",
-  "displayName": "Hinata Shōyō 日向翔陽\n"
+    "payload": {
+        "profilePicture": "",
+        "coverImage": "",
+        "bio": "",
+        "avatarType": "jdenticon",
+        "displayName": "KYOKAN"
+    }
 }
 ```

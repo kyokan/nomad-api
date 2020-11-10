@@ -3,7 +3,7 @@
 Return media file of the specified refhash.
 
 ### Resource URL
-`https://api.nomadweb.io/media/:refhash`
+`https://api.nmd.co/media/:refhash`
 
 ### Path Parameters
 | Name | Required | Description |

@@ -3,7 +3,7 @@
 Returns list of all users followed by a user.
 
 ### Resource URL
-`https://api.nomadweb.io/users/:username/followees`
+`https://api.nmd.co/users/:username/followees`
 
 ### Path Parameters
 | Name | Required | Description |
@@ -20,18 +20,18 @@ Returns list of all users followed by a user.
 ### Sample Response
 
 ```typescript
-// curl https://api.nomadweb.io/users/@4813/followees?order=ASC&limit=1
 {
-  "items": [
-    {
-      "tld": "4813.",
-      "subdomain": null,
-      "guid": "027be7e39e054daa927adfcb3afe273b",
-      "timestamp": "2020-03-23T06:11:40.000Z",
-      "followeeTld": "9325.",
-      "followeeSubdomain": null
-    }
-  ],
-  "next": null
+  "payload": {
+    "items": [
+      {
+        "tld": "4813",
+        "subdomain": null,
+        "timestamp": "2020-03-23T06:11:40.000Z",
+        "followeeTld": "9325",
+        "followeeSubdomain": null
+      }
+    ],
+    "next": null
+  }
 }
 ```

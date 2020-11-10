@@ -3,7 +3,7 @@
 Returns list of all posts liked by a user.
 
 ### Resource URL
-`https://api.nomadweb.io/users/:username/likes`
+`https://api.nmd.co/users/:username/likes`
 
 ### Path Parameters
 | Name | Required | Description |
@@ -20,30 +20,31 @@ Returns list of all posts liked by a user.
 ### Sample Response
 
 ```typescript
-// curl https://api.nomadweb.io/users/@4813/likes?order=ASC&limit=1
 {
-  "items": [
-    {
-      "post": {
-        "tld": "9325.",
-        "subdomain": null,
-        "guid": "d464f9d14eaa433d86734df592e5247a",
-        "timestamp": "2020-03-11T08:26:54.000Z",
-        "parent": null,
-        "context": null,
-        "content": "I kinda like the identicon\n",
-        "topic": "",
-        "tags": [
-          
-        ]
-      },
-      "meta": {
-        "replyCount": 0,
-        "likeCount": 2,
-        "pinCount": 0
-      }
+    "payload": {
+        "items": [
+            {
+                "id": 6,
+                "tld": "kyokan",
+                "subdomain": "",
+                "networkId": "",
+                "refhash": "ec60461b1c80006d9ca70327714de3dc69bebb5ec70eded85a38300d3c8743ca6b796f6b616e",
+                "createdAt": "2020-11-09T05:39:57.000Z",
+                "message": {
+                    "id": 6,
+                    "body": "\"We can make openness irrevocable.\" - [](http://brewster.kahle.org/2015/08/11/locking-the-web-open-a-call-for-a-distributed-web-2/)\n",
+                    "title": null,
+                    "reference": null,
+                    "topic": null,
+                    "tags": [],
+                    "replyCount": 0,
+                    "likeCount": 1,
+                    "pinCount": 0
+                },
+                "additionalData": null
+            }
+        ],
+        "next": 6
     }
-  ],
-  "next": 1
 }
 ```

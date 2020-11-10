@@ -3,7 +3,7 @@
 Returns replies of a given refhash.
 
 ### Resource URL
-`https://api.nomadweb.io/posts/:refhash/comments`
+`https://api.nmd.co/posts/:refhash/comments`
 
 ### Path Parameters
 | Name | Required | Description |
@@ -20,30 +20,26 @@ Returns replies of a given refhash.
 ### Sample Response
 
 ```typescript
-// curl https://api.nomadweb.io/posts/e6c6bf61453010d1a3aee46200c022ce343c4791912ba89905ab016c3b60ed57/comments
 {
-  "items": [
-    { 
-      "post": {
-        "tld": "9411.",
-        "subdomain": "whogonnastopme",
-        "guid": "4918d590c73e487e93fcc9bf54496cf4",
-        "timestamp": "2020-03-12T04:27:02.000Z",
-        "parent": "e6c6bf61453010d1a3aee46200c022ce343c4791912ba89905ab016c3b60ed57",
-        "context": null,
-        "content": "true that\n",
-        "topic": "",
-        "tags": [
-          
-        ]
-      },
-      "meta": {
-        "replyCount": 0,
-        "likeCount": 0,
-        "pinCount": 0
-      }
+    "payload": {
+        "id": 1,
+        "tld": "kyokan",
+        "subdomain": "",
+        "networkId": "",
+        "refhash": "d12343a489083aaf33f7b8b2f53243dce802a75eea71eebaa0e27823da83d3b36b796f6b616e",
+        "createdAt": "2020-11-09T05:29:17.000Z",
+        "message": {
+            "id": 1,
+            "body": "\"We're on the verge of a shift in how information is exchanged, a decentralization revolution. I don't think anyone can stop this now.\"\n",
+            "title": null,
+            "reference": null,
+            "topic": null,
+            "tags": [],
+            "replyCount": 0,
+            "likeCount": 0,
+            "pinCount": 0
+        },
+        "additionalData": null
     }
-  ],
-  "next": 1
 }
 ```

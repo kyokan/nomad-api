@@ -3,7 +3,7 @@
 Returns list of top level posts.
 
 ### Resource URL
-`https://api.nomadweb.io/posts`
+`https://api.nmd.co/posts`
 
 ### Query Parameters
 | Name | Required | Description | Default |
@@ -15,30 +15,31 @@ Returns list of top level posts.
 ### Sample Response
 
 ```typescript
-// curl https://api.nomadweb.io/posts?order=ASC&limit=1
 {
-  "items": [
-    {
-      "post": {
-        "tld": "9325.",
-        "subdomain": null,
-        "guid": "72afa2c633994b0eb48878e1f2d0800a",
-        "timestamp": "2020-03-11T07:50:26.000Z",
-        "parent": null,
-        "context": null,
-        "content": "One small post for @9325\n",
-        "topic": "",
-        "tags": [
-          
-        ]
-      },
-      "meta": {
-        "replyCount": 53,
-        "likeCount": 3,
-        "pinCount": 0
-      }
+    "payload": {
+        "items": [
+            {
+                "id": 1,
+                "tld": "kyokan",
+                "subdomain": "",
+                "networkId": "",
+                "refhash": "d12343a489083aaf33f7b8b2f53243dce802a75eea71eebaa0e27823da83d3b36b796f6b616e",
+                "createdAt": "2020-11-09T05:29:17.000Z",
+                "message": {
+                    "id": 1,
+                    "body": "\"We're on the verge of a shift in how information is exchanged, a decentralization revolution. I don't think anyone can stop this now.\"\n",
+                    "title": null,
+                    "reference": null,
+                    "topic": null,
+                    "tags": [],
+                    "replyCount": 0,
+                    "likeCount": 0,
+                    "pinCount": 0
+                },
+                "additionalData": null
+            }
+        ],
+        "next": 1
     }
-  ],
-  "next": 1
 }
 ```
