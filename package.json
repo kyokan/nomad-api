@@ -7,7 +7,7 @@
     "build-indexer-api": "webpack --config ./webpack.config.js --inline",
     "watch-indexer-api": "NODE_ENV=development webpack --config ./webpack.config.js --inline --watch",
     "nodemon-indexer-api": "nodemon ./build/index.js",
-    "build-lib": "tsc -p ./tsconfig.json",
+    "build-lib": "tsc -p ./tsconfig.lib.json",
     "dev": "concurrently --kill-others-on-fail npm:watch-indexer-api npm:nodemon-indexer-api",
     "dev-doc": "webpack-dev-server --config webpack.ui.config.js --hot --inline --port 8083",
     "build-doc": "NODE_ENV=production webpack --config webpack.ui.config.js --inline",

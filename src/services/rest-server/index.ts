@@ -1,10 +1,7 @@
-// @ts-ignore
 import express from "express";
-// @ts-ignore
 import cors, {CorsOptions} from 'cors';
 import {makeResponse} from "../../util/rest";
 import logger from "../../util/logger";
-// @ts-ignore
 import fs from "fs";
 const requestIp = require('request-ip');
 const fileUpload = require('express-fileupload');

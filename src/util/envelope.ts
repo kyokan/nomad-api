@@ -209,8 +209,6 @@ export async function createEnvelope(tld: string, params: WriterEnvelopeParams):
     post,
     connection,
     moderation,
-    media,
-    networkId,
     refhash,
     createAt,
     nameIndex = 0,
@@ -218,7 +216,7 @@ export async function createEnvelope(tld: string, params: WriterEnvelopeParams):
 
   let envelope: DomainEnvelope<any> | undefined;
 
-  if (!networkId || !refhash || !createAt) return undefined;
+  if (!refhash || !createAt) return undefined;
 
   const createdAt = new Date(createAt.toISOString().split('.')[0]+"Z");
 
@@ -227,7 +225,7 @@ export async function createEnvelope(tld: string, params: WriterEnvelopeParams):
       0,
       tld,
       null,
-      networkId,
+      '',
       refhash,
       createdAt,
       new DomainPost(
@@ -250,7 +248,7 @@ export async function createEnvelope(tld: string, params: WriterEnvelopeParams):
       0,
       tld,
       null,
-      networkId,
+      '',
       refhash,
       createdAt,
       new DomainConnection(
@@ -268,7 +266,7 @@ export async function createEnvelope(tld: string, params: WriterEnvelopeParams):
       0,
       tld,
       null,
-      networkId,
+      '',
       refhash,
       createdAt,
       new DomainModeration(

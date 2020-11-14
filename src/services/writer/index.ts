@@ -314,7 +314,6 @@ export class Writer {
             .send(makeResponse('invalid envelope', true));
         }
 
-
         const rh = await createRefhash(envelope, '', tld);
         const rhHex = rh.toString('hex');
 
@@ -376,10 +375,6 @@ export class Writer {
 
       if (!sig || typeof sig !== 'string') {
         return res.status(400).send(makeResponse('invalid sig', true));
-      }
-
-      if (!networkId || typeof networkId !== 'string') {
-        return res.status(400).send(makeResponse('invalid networkId', true));
       }
 
       if (!date) {
