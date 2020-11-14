@@ -342,7 +342,16 @@ export class Writer {
 
       try {
         const info = await this.client.getBlobInfo(blobName);
-        res.send(makeResponse(info));
+        let offset = 0;
+        await this.client.scanBlob(blobName, async (type, subtype, env) => {
+          const bytes = await env.toBytes();
+          offset = offset + bytes.length;
+          return true;
+        }, 1024 * 1024);
+        res.send(makeResponse({
+          ...info,
+          offset,
+        }));
       } catch (e) {
         return res.status(500)
           .send(makeResponse(e.message, true));
