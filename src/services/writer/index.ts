@@ -206,13 +206,17 @@ export class Writer {
     await this.client.commit(txId, createdAt, sig, broadcast);
   }
 
-  async preCommit(tld: string, envelope: Envelope, offset = 0, date?: Date): Promise<{sealedHash: Buffer; txId: number}> {
+  async preCommit(tld: string, envelope: Envelope, offset = 0, date?: Date, truncate = false): Promise<{sealedHash: Buffer; txId: number}> {
     const txId = await this.client.checkout(tld);
     const writer = new BlobWriter(this.client, txId, offset);
 
     logger.info(`precommiting`, { tld, txId });
 
-    await encodeEnvelopeAsync(writer, envelope);
+    if (truncate) {
+      await this.client.truncate(txId);
+    } else if (envelope) {
+      await encodeEnvelopeAsync(writer, envelope);
+    }
 
     const merkleRoot = await this.client.preCommit(txId);
 
@@ -222,13 +226,18 @@ export class Writer {
     };
   }
 
-  async commit(tld: string, envelope: Envelope, offset = 0, date: Date, hash: string, sig: string): Promise<void> {
+  // @ts-ignore
+  async commit(tld: string, envelope?: Envelope, offset = 0, date: Date, hash: string, sig: string, truncate = false): Promise<void> {
     const txId = await this.client.checkout(tld);
     const writer = new BlobWriter(this.client, txId, offset);
 
     logger.info(`commiting`, { tld, txId });
 
-    await encodeEnvelopeAsync(writer, envelope);
+    if (truncate) {
+      await this.client.truncate(txId);
+    } else if (envelope) {
+      await encodeEnvelopeAsync(writer, envelope);
+    }
 
     const merkleRoot = await this.client.preCommit(txId);
     const sealedHash = sealHash(tld, date || new Date(), merkleRoot);
@@ -242,7 +251,10 @@ export class Writer {
       throw new Error(`hash should be ${sealedHashHex}`);
     }
 
-    return this.client.commit(txId, date, Buffer.from(sig, 'hex'), true);
+    const res = await this.client.commit(txId, date, Buffer.from(sig, 'hex'), true);
+
+
+    return res;
   }
 
   setRoutes(app: Express) {
@@ -287,6 +299,7 @@ export class Writer {
         date,
         refhash,
         networkId,
+        truncate,
       } = req.body;
 
       if (!tld || typeof tld !== 'string') {
@@ -321,7 +334,7 @@ export class Writer {
           return res.status(400)
             .send(makeResponse('invalid envelope', true));
         }
-        const {sealedHash, txId} = await this.preCommit(tld, envelope, offset, createdAt);
+        const {sealedHash, txId} = await this.preCommit(tld, envelope, offset, createdAt, truncate);
 
         res.send(makeResponse({
           sealedHash: sealedHash.toString('hex'),
@@ -339,15 +352,16 @@ export class Writer {
       const blobName = req.params.blobName;
 
       trackAttempt('Get Blob Info', req, blobName);
-
       try {
         const info = await this.client.getBlobInfo(blobName);
         let offset = 0;
+
         await this.client.scanBlob(blobName, async (type, subtype, env) => {
           const bytes = await env.toBytes();
           offset = offset + bytes.length;
           return true;
         }, 1024 * 1024);
+
         res.send(makeResponse({
           ...info,
           offset,
@@ -372,6 +386,7 @@ export class Writer {
         sealedHash,
         sig,
         refhash,
+        truncate,
       } = req.body;
 
       if (!tld || typeof tld !== 'string') {
@@ -404,7 +419,7 @@ export class Writer {
           refhash,
         });
 
-        if (!envelope) {
+        if (!envelope && !truncate) {
           return res.status(400).send(makeResponse('invalid envelope', true));
         }
 
@@ -415,7 +430,12 @@ export class Writer {
           new Date(date),
           sealedHash,
           sig,
+          truncate,
         );
+
+        if (envelope && !truncate) {
+          await this.indexer.insertPost(tld, envelope);
+        }
 
         res.send(makeResponse('ok'));
       } catch (e) {
