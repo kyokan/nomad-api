@@ -42,4 +42,37 @@ export default class HSDService {
     });
     return await hsdResponse.json();
   };
+
+  fetchNameInfo = async (name: string) => {
+    const hsdResponse = await fetch(this.getURL(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        method: 'getnameinfo',
+        params: [name],
+      }),
+    });
+    return await hsdResponse.json();
+  };
+
+  fetchTXOut = async (hash: string, index: number) => {
+    const hsdResponse = await fetch(this.getURL(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        method: 'gettxout',
+        params: [hash, index],
+      }),
+    });
+    return await hsdResponse.json();
+  };
+
+  fetchCoins = async (address: string) => {
+    const hsdResponse = await fetch(this.getURL() + `/coin/address/${address}`);
+    return await hsdResponse.json();
+  };
 }

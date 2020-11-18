@@ -56,9 +56,7 @@ const SPRITE_TO_SPRITES: {[sprite: string]: any} = {
   jdenticon: Jdenticon,
 };
 
-const TLD_CACHE: {
-  [tld: string]: string;
-} = {};
+const CONFIRMATION_HEIGHT = 8;
 
 const IMAGE_CACHE: {
   [hash: string]: {
@@ -770,6 +768,39 @@ export class IndexerManager {
       })[0];
       registered = !!rec;
     }
+
+    if (!confirmed) {
+      try {
+        const {chain: {height}} = await this.hsdClient?.fetchHSDInfo();
+        const { result: { info: {
+          owner: { hash, index },
+        } } } = await this.hsdClient?.fetchNameInfo(username);
+        const { result: { address: { string: address } } } = await this.hsdClient?.fetchTXOut(hash, index);
+        const coins = await this.hsdClient?.fetchCoins(address);
+
+        for (const coin of coins) {
+          switch (coin.covenant?.action) {
+            case "UPDATE":
+              const txt = Buffer.from(coin.covenant?.items[2], 'hex')
+                .toString('utf-8')
+                .slice(4);
+              if (txt[0] === 'f' && txt.length === 45) {
+                if (coin.height + CONFIRMATION_HEIGHT < height) {
+                  confirmed = true;
+                } else {
+                  confirmed = false;
+                }
+              }
+              break;
+            default:
+              break;
+          }
+        }
+      } catch (e) {}
+
+    }
+
+
 
     if (this.pgClient) {
       const profile = await this.pgClient.getUserProfile(username);
