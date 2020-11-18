@@ -1,9 +1,8 @@
 import express from "express";
 import cors, {CorsOptions} from 'cors';
-import {fetchHSDInfo, makeResponse} from "../../util/rest";
+import {makeResponse} from "../../util/rest";
 import logger from "../../util/logger";
 import fs from "fs";
-import PostgresAdapter from "../../db/PostgresAdapter";
 import HSDService from "../hsd";
 const requestIp = require('request-ip');
 const fileUpload = require('express-fileupload');
