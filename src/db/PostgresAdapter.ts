@@ -13,6 +13,7 @@ import {parseUsername} from "../util/user";
 import {UserProfile} from "../constants";
 import {SubdomainDBRow} from "../services/subdomains";
 import config from "../../config.json";
+import {BlobInfo} from "fn-client/lib/fnd/BlobInfo";
 
 export type PostgresAdapterOpts = {
   user: string;
@@ -31,6 +32,36 @@ export default class PostgresAdapter {
       logger.error(err);
     });
     this.pool = pool;
+  }
+
+  async insertRecord(blobInfo: BlobInfo) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const {rows: [{exists}]} = await client.query(
+        'SELECT EXISTS(SELECT 1 FROM records WHERE tld = $1)',
+        [blobInfo.name]
+      );
+
+      if (!exists) {
+        await client.query(`
+          INSERT INTO records (tld, subdomain, public_key, import_height)
+          VALUES ($1, $2, $3, $4)
+        `, [
+          blobInfo.name,
+          '',
+          blobInfo.publicKey,
+          blobInfo.importHeight,
+        ]);
+      }
+
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+    } finally {
+      logger.verbose('released pg client', { tld: blobInfo.name });
+      client.release();
+    }
   }
 
   async insertEnvelope(env: DomainEnvelope<any>, _client: PoolClient): Promise<number> {
@@ -403,6 +434,33 @@ export default class PostgresAdapter {
       client.release();
       return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
     }
+  };
+
+  getRecords = async (limit = 20, offset = 0): Promise<Pageable<any, number>> => {
+    if (limit <= 0) {
+      return new Pageable<any, number>([], -1);
+    }
+
+    const client = await this.pool.connect();
+    const {rows} = await client.query(`
+        SELECT tld, public_key, import_height FROM records
+        ORDER BY tld ASC
+        LIMIT $1 OFFSET $2
+    `, [
+      limit,
+      offset,
+    ]);
+
+    client.release();
+
+    if (!rows.length) {
+      return new Pageable<any, number>([], -1);
+    }
+
+    return new Pageable<any, number>(
+      rows.map(r => ({ ...r, import_height: Number(r.import_height)})),
+      rows.length + Number(offset),
+    );
   };
 
   getPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {

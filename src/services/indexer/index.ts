@@ -46,6 +46,7 @@ import {mapWireToEnvelope} from "../../util/envelope";
 import {SubdomainDBRow} from "../subdomains";
 import PostgresAdapter from "../../db/PostgresAdapter";
 import HSDService from "../hsd";
+import {BlobInfo} from "fn-client/lib/fnd/BlobInfo";
 
 const SPRITE_TO_SPRITES: {[sprite: string]: any} = {
   identicon: Identicon,
@@ -149,8 +150,9 @@ export class IndexerManager {
 
     '/tlds': async (req: Request, res: Response) => {
       trackAttempt('Get All TLDs', req);
-      const tlds = await this.readAllTLDs();
-      res.send(makeResponse(tlds));
+      const { limit, offset } = req.query || {};
+      const resp = await this.getRecords(limit, offset);
+      res.send(makeResponse(resp));
     },
 
     '/tags': async (req: Request, res: Response) => {
@@ -744,27 +746,30 @@ export class IndexerManager {
   };
 
   getUserProfile = async (username: string): Promise<UserProfile> => {
-    const {result} = await this.hsdClient?.fetchNameResource(username);
-    const {records = []} = result || {};
-    const rec = records.filter((rec: any) => {
-      if (rec.type === 'TXT') {
-        const txt = rec.txt ? rec.txt[0] : '';
-
-        if (!txt || txt.length !== 45) return false;
-
-        if (txt[0] !== 'f') return false;
-
-        return true;
-      }
-
-      return false;
-    })[0];
-
     const info = await this.client.getBlobInfo(username)
       .catch(() => null);
 
-    let registered = !!rec;
+    let registered = !!info;
     let confirmed = !!info;
+
+    if (!registered) {
+      const {result} = await this.hsdClient?.fetchNameResource(username);
+      const {records = []} = result || {};
+      const rec = records.filter((rec: any) => {
+        if (rec.type === 'TXT') {
+          const txt = rec.txt ? rec.txt[0] : '';
+
+          if (!txt || txt.length !== 45) return false;
+
+          if (txt[0] !== 'f') return false;
+
+          return true;
+        }
+
+        return false;
+      })[0];
+      registered = !!rec;
+    }
 
     if (this.pgClient) {
       const profile = await this.pgClient.getUserProfile(username);
@@ -1065,6 +1070,14 @@ export class IndexerManager {
     );
   }
 
+  insertRecord = async (blobInfo: BlobInfo) => {
+    if (this.pgClient) return this.pgClient.insertRecord(blobInfo);
+  };
+
+  getRecords = async (limit = 100, offset = 0) => {
+    if (this.pgClient) return this.pgClient.getRecords(limit, offset);
+  };
+
   insertPost = async (tld: string, wire: WireEnvelope, subdomains: SubdomainDBRow[] = []): Promise<any> => {
     const nameIndex = wire.nameIndex;
     const subdomain = subdomains[nameIndex];
@@ -1269,6 +1282,11 @@ export class IndexerManager {
     };
   };
 
+  streamBlobData = async (tld: string): Promise<void> => {
+    const blobInfo = await this.client.getBlobInfo(tld);
+    await this.insertRecord(blobInfo);
+  };
+
   maybeStreamBlob = async (tld: string): Promise<void> => {
     logger.info(`streaming ${tld}`, { tld });
 
@@ -1430,23 +1448,29 @@ export class IndexerManager {
     await fs.promises.copyFile(nomadSrc, this.dbPath);
   }
 
-  async readAllTLDs(): Promise<string[]> {
-    await this.streamBlobInfo();
-    return Object.keys(TLD_CACHE);
-  }
+  async streamAllBlobs(start = '', defaultTimeout?: number): Promise<void> {
+    let timeout: number | undefined = defaultTimeout;
 
-  async streamAllBlobs(): Promise<void> {
-    const tlds = await this.readAllTLDs();
+    return new Promise((resolve, reject) => {
+      let lastUpdate = start;
+      let counter = 0;
 
-    for (let i = 0; i < tlds.length; i = i + 1) {
-      const selectedTLDs = tlds.slice(i, i + 1).filter(tld => !!tld);
-      await this.streamNBlobs(selectedTLDs);
+      this.client.streamBlobInfo(start, 100, async (info) => {
+        if (timeout) clearTimeout(timeout);
 
-    }
-  }
+        await this.streamBlobData(info.name);
+        await this.maybeStreamBlob(info.name);
+        lastUpdate = info.name;
+        counter++;
 
-  private async streamNBlobs(tlds: string[]): Promise<void[]> {
-    return Promise.all(tlds.map(async tld => this.maybeStreamBlob(dotName(tld))));
+        timeout = setTimeout(resolve, 0);
+        if (counter % 100 === 0) {
+          await this.streamBlobInfo(lastUpdate, timeout);
+        }
+      });
+
+      timeout = setTimeout(resolve, 500);
+    })
   }
 
   streamBlobInfo = async (start = '', defaultTimeout?: number, shouldStreamContent?: boolean): Promise<number> => {
@@ -1459,7 +1483,7 @@ export class IndexerManager {
       this.client.streamBlobInfo(start, 100, async (info) => {
         if (timeout) clearTimeout(timeout);
 
-        TLD_CACHE[info.name] = info.merkleRoot;
+        await this.insertRecord(info);
         lastUpdate = info.name;
         counter++;
 

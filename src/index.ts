@@ -55,7 +55,10 @@ let watchInterval: Timeout;
   await subdomains.start();
 
   // Ingest on every blob sync
-  fnd.onNameSynced(indexer.maybeStreamBlob);
+  fnd.onNameSynced(async (tld) => {
+    await indexer.streamBlobInfo(tld);
+    await indexer.maybeStreamBlob(tld);
+  });
 
   const app = server.app;
 
