@@ -1,8 +1,10 @@
 import express from "express";
 import cors, {CorsOptions} from 'cors';
-import {makeResponse} from "../../util/rest";
+import {fetchHSDInfo, makeResponse} from "../../util/rest";
 import logger from "../../util/logger";
 import fs from "fs";
+import PostgresAdapter from "../../db/PostgresAdapter";
+import HSDService from "../hsd";
 const requestIp = require('request-ip');
 const fileUpload = require('express-fileupload');
 const port = process.env.PORT || 8082;
@@ -18,13 +20,17 @@ const corsOptions: CorsOptions = {
 
 export class RestServer {
   app: ReturnType<typeof express>;
+  hsdClient: HSDService;
 
-  constructor() {
+  constructor(opts: {
+    hsdClient: HSDService;
+  }) {
     fs.promises.readFile('./build-doc/index.html')
       .then(buf => {
         docsHTML = buf.toString('utf-8');
       });
 
+    this.hsdClient = opts.hsdClient;
     this.app = express();
     this.app.use(cors(corsOptions));
     this.app.use(requestIp.mw());
@@ -63,8 +69,16 @@ export class RestServer {
       });
     }
 
+    this.app.get('/hsd', async (req, res) => {
+      const json = await this.hsdClient.fetchHSDInfo();
+      res.send(makeResponse({
+        ...json,
+        pool: undefined,
+      }));
+    });
+
     this.app.get('/health', (req, res) => {
-      res.send(makeResponse('ok'))
+      res.send(makeResponse('ok'));
     });
   }
 

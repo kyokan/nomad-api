@@ -1,3 +1,7 @@
+import HSDService from "./services/hsd";
+
+require("isomorphic-fetch");
+
 const bodyParser = require('body-parser');
 import {RestServer} from "./services/rest-server";
 import {FNDController} from "./services/fnd";
@@ -22,10 +26,19 @@ let watchInterval: Timeout;
     pgClient = new PostgresAdapter(config.postgres);
   }
 
-  const server = new RestServer();
+  const hsdClient = new HSDService({
+    host: config.handshakeRPCHost,
+    apiKey: config.handshakeRPCKey,
+    basePath: config.handshakeBasePath,
+    port: config.handshakePort,
+  });
+  const server = new RestServer({
+    hsdClient,
+  });
   const fnd = new FNDController();
   const indexer = new IndexerManager({
     pgClient,
+    hsdClient,
   });
   const subdomains = new SubdomainManager({
     indexer,

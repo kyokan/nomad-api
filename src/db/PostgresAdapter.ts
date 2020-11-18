@@ -1012,6 +1012,8 @@ export default class PostgresAdapter {
         followers,
         blockings,
         blockers,
+        registered: false,
+        confirmed: false,
       };
 
     } catch (e) {
@@ -1027,6 +1029,8 @@ export default class PostgresAdapter {
         followers: 0,
         blockings: 0,
         blockers: 0,
+        registered: false,
+        confirmed: false,
       };
     }
   };

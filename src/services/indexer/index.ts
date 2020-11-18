@@ -45,6 +45,7 @@ const dbPath = path.join(appDataPath, 'nomad.db');
 import {mapWireToEnvelope} from "../../util/envelope";
 import {SubdomainDBRow} from "../subdomains";
 import PostgresAdapter from "../../db/PostgresAdapter";
+import HSDService from "../hsd";
 
 const SPRITE_TO_SPRITES: {[sprite: string]: any} = {
   identicon: Identicon,
@@ -77,6 +78,7 @@ export class IndexerManager {
   client: DDRPDClient;
   engine: SqliteEngine;
   pgClient?: PostgresAdapter;
+  hsdClient?: HSDService;
   dbPath: string;
   resourcePath: string;
 
@@ -85,11 +87,13 @@ export class IndexerManager {
     namedbPath?: string;
     resourcePath?: string;
     pgClient?: PostgresAdapter;
+    hsdClient?: HSDService;
   }) {
     const client = new DDRPDClient('127.0.0.1:9098');
     this.client = client;
 
     this.pgClient = opts?.pgClient;
+    this.hsdClient = opts?.hsdClient;
     this.engine = new SqliteEngine(opts?.dbPath || dbPath);
     this.dbPath = opts?.dbPath || dbPath;
     this.resourcePath = opts?.resourcePath || 'resources';
@@ -740,7 +744,37 @@ export class IndexerManager {
   };
 
   getUserProfile = async (username: string): Promise<UserProfile> => {
-    if (this.pgClient) return this.pgClient.getUserProfile(username);
+    const {result} = await this.hsdClient?.fetchNameResource(username);
+    const {records = []} = result || {};
+    const rec = records.filter((rec: any) => {
+      if (rec.type === 'TXT') {
+        const txt = rec.txt ? rec.txt[0] : '';
+
+        if (!txt || txt.length !== 45) return false;
+
+        if (txt[0] !== 'f') return false;
+
+        return true;
+      }
+
+      return false;
+    })[0];
+
+    const info = await this.client.getBlobInfo(username)
+      .catch(() => null);
+
+    let registered = !!rec;
+    let confirmed = !!info;
+
+    if (this.pgClient) {
+      const profile = await this.pgClient.getUserProfile(username);
+
+      return {
+        ...profile,
+        registered,
+        confirmed,
+      };
+    }
 
     const profilePicture = await this.getUserProfilePicture(username) || '';
     const coverImage = await this.getUserCoverImage(username) || '';
@@ -752,6 +786,7 @@ export class IndexerManager {
     const blockings = await this.getBlockingCounts(username);
     const blockers = await this.getBlockerCounts(username);
 
+
     return {
       profilePicture,
       coverImage,
@@ -762,6 +797,8 @@ export class IndexerManager {
       followers,
       blockings,
       blockers,
+      registered,
+      confirmed,
     };
   };
 
@@ -1331,8 +1368,8 @@ export class IndexerManager {
       logger.info(`scan blob data`, { tld });
 
       timeout = setTimeout(() => {
-        resolve();
-      }, 10000);
+        reject(new Error('cannot read blob'));
+      }, 2000);
 
       await asyncIterateAllEnvelopes(r, async (err, env) => {
         if (timeout) clearTimeout(timeout);

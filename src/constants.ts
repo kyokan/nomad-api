@@ -14,6 +14,8 @@ export type UserProfile = {
   followers: number;
   blockings: number;
   blockers: number;
+  registered: boolean;
+  confirmed: boolean;
 }
 export type PostBody = {
   body: string;

@@ -360,7 +360,7 @@ export class Writer {
           const bytes = await env.toBytes();
           offset = offset + bytes.length;
           return true;
-        }, 1024 * 1024);
+        }, 8*1024).catch(() => null);
 
         res.send(makeResponse({
           ...info,

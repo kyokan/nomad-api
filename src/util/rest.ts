@@ -1,3 +1,5 @@
+import config from "../../config.json";
+
 export type RestServerResponse = {
   payload: any;
   error?: boolean;
