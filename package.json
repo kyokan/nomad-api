@@ -1,6 +1,6 @@
 {
   "name": "nomad-api",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -84,7 +84,7 @@
     "elliptic": "^6.5.2",
     "express": "^4.17.1",
     "express-fileupload": "^1.1.7-alpha.3",
-    "fn-client": "^0.3.0",
+    "fn-client": "^0.4.0",
     "ipfs": "^0.46.0",
     "isomorphic-fetch": "^2.2.1",
     "matomo-tracker": "^2.2.1",
