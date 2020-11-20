@@ -2,6 +2,7 @@ import {Post} from 'fn-client/lib/application/Post';
 import {Engine, Row} from './Engine';
 import {Envelope} from 'fn-client/lib/application/Envelope';
 import {Pageable} from './Pageable';
+import {BlobInfo} from "fn-client/lib/fnd/BlobInfo";
 
 export type SQLOrder = 'ASC' | 'DESC';
 
@@ -67,15 +68,70 @@ export class PostsDAOImpl implements PostsDAO {
     }, (row) => {
       envelopes.push(this.mapPost(row, true));
     });
+
     if (!envelopes.length) {
       return new Pageable<Envelope<Post>, number>([], -1);
     }
+
     return new Pageable<Envelope<Post>, number>(envelopes, envelopes[envelopes.length - 1].message.id);
   }
 
-  public insertPost (post: Envelope<Post>): void {
-    console.log(post)
+  public getRecords = async (limit = 20, offset = 0): Promise<Pageable<BlobInfo[], number>> => {
+    if (limit <= 0) {
+      return new Pageable<any, number>([], -1);
+    }
 
+    const rows: BlobInfo[] = [];
+
+    this.engine.each(`
+      SELECT tld, public_key, import_height FROM records
+      ORDER BY tld ASC
+      LIMIT @limit OFFSET @offset
+    `, {
+      limit,
+      offset,
+    }, (row) => {
+      rows.push({
+        ...row,
+        // @ts-ignore
+        import_height: Number(row.import_height),
+      });
+    });
+
+    if (!rows.length) {
+      return new Pageable<any, number>([], -1);
+    }
+
+    return new Pageable<any, number>(
+      rows,
+      rows.length + Number(offset),
+    );
+  };
+
+  public insertRecord (blobInfo: BlobInfo): void {
+    this.engine.withTx(() => {
+      const exists = this.engine.first(`
+      SELECT EXISTS(SELECT 1 FROM record WHERE tld = @tld) AS result
+      `, {
+        tld: blobInfo.name,
+      });
+      if (exists?.result) {
+        return;
+      }
+
+      this.engine.exec(`
+          INSERT INTO records (tld, subdomain, public_key, import_height)
+          VALUES (@tld, @subdomain, @public_key, @import_height)
+      `, {
+        tld: blobInfo.name,
+        subdomain: '',
+        public_key: blobInfo.publicKey,
+        import_height: blobInfo.importHeight,
+      });
+    });
+  }
+
+  public insertPost (post: Envelope<Post>): void {
     this.engine.withTx(() => {
       const exists = this.engine.first('SELECT EXISTS(SELECT 1 FROM envelopes WHERE refhash = @refhash) AS result', {
         refhash: post.refhash,

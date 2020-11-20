@@ -1103,10 +1103,14 @@ export class IndexerManager {
 
   insertRecord = async (blobInfo: BlobInfo) => {
     if (this.pgClient) return this.pgClient.insertRecord(blobInfo);
+
+    return this.postsDao!.insertRecord(blobInfo);
   };
 
   getRecords = async (limit = 100, offset = 0) => {
     if (this.pgClient) return this.pgClient.getRecords(limit, offset);
+
+    return this.postsDao!.getRecords(limit, offset);
   };
 
   insertPost = async (tld: string, wire: WireEnvelope, subdomains: SubdomainDBRow[] = []): Promise<any> => {
@@ -1322,24 +1326,11 @@ export class IndexerManager {
     logger.info(`streaming ${tld}`, { tld });
 
     try {
-      // const blobInfo = await this.client.getBlobInfo(tld);
-      // @ts-ignore
-      // const lastMerkle = blobInfo.merkleRoot.toString('hex');
-      // const row = await this.getBlobInfo(tld);
-      // if (row && row.merkleRoot === lastMerkle) {
-      //   logger.info(`${tld} already streamed`, row);
-      //   return;
-      // }
-
       const br = new BlobReader(tld, this.client);
       const r = new BufferedReader(br, 1024 * 1024);
-
       await this.scanBlobData(r, tld, []);
-
-      // await this.insertOrUpdateBlobInfo(tld, lastMerkle);
     } catch (e) {
       logger.error(e);
-      // return Promise.reject(e);
     }
   };
 
