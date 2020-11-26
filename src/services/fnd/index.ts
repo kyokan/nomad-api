@@ -5,10 +5,10 @@ import net from "net";
 import logger from "../../util/logger";
 import {dirExists} from "../../util/fs";
 import {dotName} from "../../util/user";
-import config from "../../../config.json";
 const appDataPath = './build';
 const fndHome = path.join(appDataPath, '.fnd');
 const fndPath = path.join(appDataPath, 'fnd');
+const configPath = path.join(process.cwd(), 'config.json');
 
 const LOG_LEVEL_LINE = 14;
 const MONIKER_LINE = 20;
@@ -29,6 +29,13 @@ export class FNDController {
   async start() {
     await this.initFND();
     await this.startDaemon();
+  }
+
+  async getConfig() {
+    if (await fs.existsSync(configPath)) {
+      const buf = await fs.promises.readFile(configPath);
+      return JSON.parse(buf.toString('utf-8'));
+    }
   }
 
   async initFND () {
@@ -56,6 +63,8 @@ export class FNDController {
 
       resolve();
     }));
+
+    const config = await this.getConfig();
 
     await this.setAPIKey(config.handshakeRPCKey);
     await this.setHost(config.handshakeRPCHost);
