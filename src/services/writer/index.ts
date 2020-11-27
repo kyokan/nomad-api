@@ -25,12 +25,10 @@ const SERVICE_KEY = process.env.SERVICE_KEY;
 export class Writer {
   client: FootnoteClient;
   indexer: IndexerManager;
-  subdomains?: SubdomainManager;
 
-  constructor(opts: {indexer: IndexerManager; subdomains: SubdomainManager}) {
+  constructor(opts: {indexer: IndexerManager}) {
     this.client = new FootnoteClient('127.0.0.1:9098');
     this.indexer = opts.indexer;
-    this.subdomains = opts.subdomains;
   }
 
   handlers = {
@@ -165,32 +163,6 @@ export class Writer {
     }
   };
 
-  async reconstructSubdomainSectors(tld: string, date?: Date, broadcast?: boolean, oldSubs: SubdomainDBRow[] = []): Promise<void> {
-    const config = await getConfig();
-    const tldData = config.signers[tld];
-
-    if (!tldData || !tldData.privateKey) throw new Error(`cannot find singer for ${tld}`);
-
-    const createdAt = date || new Date();
-    const subs = await this.subdomains?.getSubdomainByTLD(tld);
-    await this.writeAt(tld, 0, Buffer.from(SUBDOMAIN_MAGIC, 'utf-8'));
-
-    if (!subs?.length) {
-      oldSubs.forEach((subdomain) => {
-        if (!subdomain.name) return;
-        this.subdomains?.addSubdomain(tld, subdomain.name, '', subdomain.public_key || '', '');
-      });
-    }
-
-    const newSubs = subs?.length ? subs : oldSubs;
-
-    let offset = 3;
-    for (let j = 0; j < newSubs?.length; j++) {
-      const shouldBroadcast = broadcast && (newSubs?.length - 1 === j);
-      offset = await this.commitSubdomain(tld, newSubs[j], j + 1, createdAt, offset, shouldBroadcast);
-    }
-  }
-
   async reconstructBlob(tld: string, date?: Date, broadcast?: boolean, source?: 'sqlite' | 'postgres'): Promise<void> {
     // await Promise.all(users.map(async (user) => {
     //   await this.subdomains.addSubdomain(`${user.tld}`, user.subdomain, user.email, null, user.hashed_password);
@@ -202,22 +174,15 @@ export class Writer {
     if (!tldData || !tldData.privateKey) throw new Error(`cannot find singer for ${tld}`);
 
     const envs = await this.indexer.getUserEnvelopes(tld, source);
-    let oldSubs: SubdomainDBRow[] = [];
 
     const createdAt = date || new Date();
 
     const br = new BlobReader(tld, this.client);
     const r = new BufferedReader(br, 4 * 1024 * 1024 - 5);
-    const isSubdomain = await this.indexer.isSubdomainBlob(r);
-    if (isSubdomain) {
-      oldSubs = await this.indexer.scanSubdomainData(r, tld);
-    }
 
     await this.truncateBlob(tld, createdAt);
 
-    await this.reconstructSubdomainSectors(tld, createdAt, false, oldSubs);
-
-    let offset = 64 * 1024;
+    let offset = 0;
 
     for (let i = 0; i < envs.length; i++) {
       const env: DomainEnvelope<any> = envs[i];

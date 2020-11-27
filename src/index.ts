@@ -2,7 +2,6 @@ import HSDService from "./services/hsd";
 
 require("isomorphic-fetch");
 
-const bodyParser = require('body-parser');
 import {RestServer} from "./services/rest-server";
 import {FNDController} from "./services/fnd";
 import {IndexerManager} from "./services/indexer";
@@ -14,8 +13,6 @@ import PostgresAdapter from "./db/PostgresAdapter";
 import {getConfig} from "./util/config";
 const SERVICE_KEY = process.env.SERVICE_KEY;
 
-const jsonParser = bodyParser.json();
-
 let watchInterval: Timeout;
 
 (async () => {
@@ -23,7 +20,6 @@ let watchInterval: Timeout;
   const config = await getConfig();
 
   if (config.postgres && config.postgres.host) {
-    // @ts-ignore
     pgClient = new PostgresAdapter(config.postgres);
   }
 
@@ -47,7 +43,6 @@ let watchInterval: Timeout;
   });
   const writer = new Writer({
     indexer,
-    subdomains,
   });
   subdomains.writer = writer;
 
