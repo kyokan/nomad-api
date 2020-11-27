@@ -6,7 +6,7 @@ import {sealHash} from "fn-client/lib/crypto/hash";
 import {sealAndSign} from "fn-client/lib/crypto/signatures";
 import {encodeSubdomain, Subdomain, SUBDOMAIN_MAGIC} from "fn-client/lib/wire/Subdomain";
 import {IndexerManager} from "../indexer";
-import {Express} from "express";
+import {Express, Request, Response} from "express";
 import bodyParser from "body-parser";
 import {makeResponse} from "../../util/rest";
 import {createRefhash} from 'fn-client/lib/wire/refhash';
@@ -32,6 +32,138 @@ export class Writer {
     this.indexer = opts.indexer;
     this.subdomains = opts.subdomains;
   }
+
+  handlers = {
+    '/relayer/precommit': async (req: Request, res: Response) => {
+      const {
+        tld,
+        post,
+        connection,
+        media,
+        moderation,
+        offset,
+        date,
+        refhash,
+        networkId,
+        truncate,
+      } = req.body;
+
+      if (!tld || typeof tld !== 'string') {
+        return res.status(400)
+          .send(makeResponse('invalid tld', true));
+      }
+
+      let envelope: Envelope | undefined;
+
+      const createdAt = date ? new Date(date) : new Date();
+
+      try {
+        envelope = await mapBodyToEnvelope(tld, {
+          post,
+          connection,
+          moderation,
+          media,
+          createAt: createdAt,
+          refhash,
+          networkId,
+        });
+
+        if (!envelope) {
+          return res.status(400)
+            .send(makeResponse('invalid envelope', true));
+        }
+
+        const rh = await createRefhash(envelope, '', tld);
+        const rhHex = rh.toString('hex');
+
+        if (!envelope) {
+          return res.status(400)
+            .send(makeResponse('invalid envelope', true));
+        }
+        const {sealedHash, txId} = await this.preCommit(tld, envelope, offset, createdAt, truncate);
+
+        res.send(makeResponse({
+          sealedHash: sealedHash.toString('hex'),
+          envelope,
+          txId,
+          refhash: refhash || rhHex,
+        }));
+      } catch (e) {
+        return res.status(500)
+          .send(makeResponse(e.message, true));
+      }
+    },
+
+    '/relayer/commit': async (req: Request, res: Response) => {
+      const {
+        tld,
+        post,
+        connection,
+        media,
+        moderation,
+        offset,
+        date,
+        networkId,
+        sealedHash,
+        sig,
+        refhash,
+        truncate,
+      } = req.body;
+
+      if (!tld || typeof tld !== 'string') {
+        return res.status(400).send(makeResponse('invalid tld', true));
+      }
+
+      if (!sealedHash || typeof sealedHash !== 'string') {
+        return res.status(400).send(makeResponse('invalid hash', true));
+      }
+
+      if (!sig || typeof sig !== 'string') {
+        return res.status(400).send(makeResponse('invalid sig', true));
+      }
+
+      if (!date) {
+        return res.status(400).send(makeResponse('invalid date', true));
+      }
+
+      let envelope: Envelope | undefined;
+      const createdAt = date ? new Date(date) : new Date();
+
+      try {
+        envelope = await createEnvelope(tld, {
+          post,
+          connection,
+          moderation,
+          media,
+          networkId,
+          createAt: createdAt,
+          refhash,
+        });
+
+        if (!envelope && !truncate) {
+          return res.status(400).send(makeResponse('invalid envelope', true));
+        }
+
+        await this.commit(
+          tld,
+          envelope,
+          offset,
+          new Date(date),
+          sealedHash,
+          sig,
+          truncate,
+        );
+
+        if (envelope && !truncate) {
+          await this.indexer.insertPost(tld, envelope);
+        }
+
+        res.send(makeResponse('ok'));
+      } catch (e) {
+        return res.status(500).send(makeResponse(e.message, true));
+      }
+    }
+  };
 
   async reconstructSubdomainSectors(tld: string, date?: Date, broadcast?: boolean, oldSubs: SubdomainDBRow[] = []): Promise<void> {
     const config = await getConfig();
@@ -288,63 +420,7 @@ export class Writer {
 
     app.post(`/relayer/precommit`, jsonParser, async (req, res) => {
       trackAttempt('Precommit Blob', req);
-      const {
-        tld,
-        post,
-        connection,
-        media,
-        moderation,
-        offset,
-        date,
-        refhash,
-        networkId,
-        truncate,
-      } = req.body;
-
-      if (!tld || typeof tld !== 'string') {
-        return res.status(400)
-          .send(makeResponse('invalid tld', true));
-      }
-
-      let envelope: Envelope | undefined;
-
-      const createdAt = date ? new Date(date) : new Date();
-
-      try {
-        envelope = await mapBodyToEnvelope(tld, {
-          post,
-          connection,
-          moderation,
-          media,
-          createAt: createdAt,
-          refhash,
-          networkId,
-        });
-
-        if (!envelope) {
-          return res.status(400)
-            .send(makeResponse('invalid envelope', true));
-        }
-
-        const rh = await createRefhash(envelope, '', tld);
-        const rhHex = rh.toString('hex');
-
-        if (!envelope) {
-          return res.status(400)
-            .send(makeResponse('invalid envelope', true));
-        }
-        const {sealedHash, txId} = await this.preCommit(tld, envelope, offset, createdAt, truncate);
-
-        res.send(makeResponse({
-          sealedHash: sealedHash.toString('hex'),
-          envelope,
-          txId,
-          refhash: refhash || rhHex,
-        }));
-      } catch (e) {
-        return res.status(500)
-          .send(makeResponse(e.message, true));
-      }
+      return this.handlers['/relayer/precommit'](req, res);
     });
 
     app.get('/blob/:blobName/info', async (req, res) => {
@@ -373,73 +449,7 @@ export class Writer {
 
     app.post(`/relayer/commit`, jsonParser, async (req, res) => {
       trackAttempt('Commit Blob', req);
-      const {
-        tld,
-        post,
-        connection,
-        media,
-        moderation,
-        offset,
-        date,
-        networkId,
-        sealedHash,
-        sig,
-        refhash,
-        truncate,
-      } = req.body;
-
-      if (!tld || typeof tld !== 'string') {
-        return res.status(400).send(makeResponse('invalid tld', true));
-      }
-
-      if (!sealedHash || typeof sealedHash !== 'string') {
-        return res.status(400).send(makeResponse('invalid hash', true));
-      }
-
-      if (!sig || typeof sig !== 'string') {
-        return res.status(400).send(makeResponse('invalid sig', true));
-      }
-
-      if (!date) {
-        return res.status(400).send(makeResponse('invalid date', true));
-      }
-
-      let envelope: Envelope | undefined;
-      const createdAt = date ? new Date(date) : new Date();
-
-      try {
-        envelope = await createEnvelope(tld, {
-          post,
-          connection,
-          moderation,
-          media,
-          networkId,
-          createAt: createdAt,
-          refhash,
-        });
-
-        if (!envelope && !truncate) {
-          return res.status(400).send(makeResponse('invalid envelope', true));
-        }
-
-        await this.commit(
-          tld,
-          envelope,
-          offset,
-          new Date(date),
-          sealedHash,
-          sig,
-          truncate,
-        );
-
-        if (envelope && !truncate) {
-          await this.indexer.insertPost(tld, envelope);
-        }
-
-        res.send(makeResponse('ok'));
-      } catch (e) {
-        return res.status(500).send(makeResponse(e.message, true));
-      }
+      return this.handlers['/relayer/commit'](req, res);
     });
   }
 }
