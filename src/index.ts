@@ -10,8 +10,8 @@ import {SubdomainManager} from "./services/subdomains";
 import {makeResponse} from "./util/rest";
 import Timeout = NodeJS.Timeout;
 import {Writer} from "./services/writer";
-import config from "../config.json";
 import PostgresAdapter from "./db/PostgresAdapter";
+import {getConfig} from "./util/config";
 const SERVICE_KEY = process.env.SERVICE_KEY;
 
 const jsonParser = bodyParser.json();
@@ -20,6 +20,7 @@ let watchInterval: Timeout;
 
 (async () => {
   let pgClient: PostgresAdapter | undefined;
+  const config = await getConfig();
 
   if (config.postgres && config.postgres.host) {
     // @ts-ignore

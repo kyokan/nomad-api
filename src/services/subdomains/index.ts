@@ -5,7 +5,6 @@ import * as fs from "fs";
 import {Express, Request, Response} from "express";
 import bodyParser from "body-parser";
 import {makeResponse} from "../../util/rest";
-import config from "../../../config.json";
 const jsonParser = bodyParser.json();
 const appDataPath = './build';
 const namedbPath = path.join(appDataPath, 'names.db');
@@ -32,6 +31,7 @@ import {IndexerManager} from "../indexer";
 import {parseUsername, serializeUsername} from "../../util/user";
 import {createSessionKey, hashPassword} from "../../util/key";
 import PostgresAdapter from "../../db/PostgresAdapter";
+import {getConfig} from "../../util/config";
 
 export type SubdomainDBRow = {
   name: string;
@@ -134,7 +134,7 @@ export class SubdomainManager {
   async addSubdomain(tld: string, subdomain: string, email = '', publicKey: string | null, password = ''): Promise<void> {
     if (this.pgClient) return this.pgClient.addSubdomain(tld, subdomain, email, publicKey, password);
 
-    // @ts-ignore
+    const config = await getConfig();
     const tldData = config.signers[tld];
 
     if (!tldData || !tldData.privateKey) throw new Error(`cannot find singer for ${tld}`);
@@ -514,7 +514,8 @@ export class SubdomainManager {
         return res.status(400).send(makeResponse('invalid username', true));
       }
 
-      // @ts-ignore
+      const config = await getConfig();
+
       if (!config.signers[tld || '']) {
         return res.status(400).send(makeResponse('invalid tld', true));
       }

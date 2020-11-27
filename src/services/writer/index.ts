@@ -12,12 +12,12 @@ import {makeResponse} from "../../util/rest";
 import {createRefhash} from 'fn-client/lib/wire/refhash';
 import logger from "../../util/logger";
 import {trackAttempt} from "../../util/matomo";
-import config from "../../../config.json";
 import {SubdomainDBRow, SubdomainManager} from "../subdomains";
 import {createEnvelope, mapBodyToEnvelope} from "../../util/envelope";
 import {BufferedReader} from "fn-client/lib/io/BufferedReader";
 import {BlobReader} from "fn-client/lib/fnd/BlobReader";
 import {Envelope as DomainEnvelope} from 'fn-client/lib/application/Envelope';
+import {getConfig} from "../../util/config";
 
 const jsonParser = bodyParser.json();
 const SERVICE_KEY = process.env.SERVICE_KEY;
@@ -25,7 +25,7 @@ const SERVICE_KEY = process.env.SERVICE_KEY;
 export class Writer {
   client: FootnoteClient;
   indexer: IndexerManager;
-  subdomains: SubdomainManager;
+  subdomains?: SubdomainManager;
 
   constructor(opts: {indexer: IndexerManager; subdomains: SubdomainManager}) {
     this.client = new FootnoteClient('127.0.0.1:9098');
@@ -34,27 +34,27 @@ export class Writer {
   }
 
   async reconstructSubdomainSectors(tld: string, date?: Date, broadcast?: boolean, oldSubs: SubdomainDBRow[] = []): Promise<void> {
-    // @ts-ignore
+    const config = await getConfig();
     const tldData = config.signers[tld];
 
     if (!tldData || !tldData.privateKey) throw new Error(`cannot find singer for ${tld}`);
 
     const createdAt = date || new Date();
-    const subs = await this.subdomains.getSubdomainByTLD(tld);
+    const subs = await this.subdomains?.getSubdomainByTLD(tld);
     await this.writeAt(tld, 0, Buffer.from(SUBDOMAIN_MAGIC, 'utf-8'));
 
-    if (!subs.length) {
+    if (!subs?.length) {
       oldSubs.forEach((subdomain) => {
         if (!subdomain.name) return;
-        this.subdomains.addSubdomain(tld, subdomain.name, '', subdomain.public_key || '', '');
+        this.subdomains?.addSubdomain(tld, subdomain.name, '', subdomain.public_key || '', '');
       });
     }
 
-    const newSubs = subs.length ? subs : oldSubs;
+    const newSubs = subs?.length ? subs : oldSubs;
 
     let offset = 3;
-    for (let j = 0; j < newSubs.length; j++) {
-      const shouldBroadcast = broadcast && (newSubs.length - 1 === j);
+    for (let j = 0; j < newSubs?.length; j++) {
+      const shouldBroadcast = broadcast && (newSubs?.length - 1 === j);
       offset = await this.commitSubdomain(tld, newSubs[j], j + 1, createdAt, offset, shouldBroadcast);
     }
   }
@@ -64,7 +64,7 @@ export class Writer {
     //   await this.subdomains.addSubdomain(`${user.tld}`, user.subdomain, user.email, null, user.hashed_password);
     // }));
     // return;
-    // @ts-ignore
+    const config = await getConfig();
     const tldData = config.signers[tld];
 
     if (!tldData || !tldData.privateKey) throw new Error(`cannot find singer for ${tld}`);
@@ -90,11 +90,10 @@ export class Writer {
     for (let i = 0; i < envs.length; i++) {
       const env: DomainEnvelope<any> = envs[i];
       const shouldBroadcast = broadcast && i === envs.length - 1;
-      const nameIndex = await this.subdomains.getNameIndex(envs[i]?.subdomain, tld);
 
       const endOffset = await this.appendEnvelope(
         tld,
-        env.toWire(nameIndex),
+        env.toWire(0),
         createdAt,
         shouldBroadcast,
         offset,
@@ -105,7 +104,7 @@ export class Writer {
 
   // @ts-ignore
   async commitSubdomain(tld: string, sub?: SubdomainDBRow, nameIndex = 0, date: Date, offset = 3, broadcast?: boolean): Promise<number> {
-    // @ts-ignore
+    const config = await getConfig();
     const tldData = config.signers[tld];
 
     if (!tldData || !tldData.privateKey) throw new Error(`cannot find singer for ${tld}`);
@@ -126,7 +125,7 @@ export class Writer {
   }
 
   async truncateBlob(tld: string, date?: Date, broadcast?: boolean, _signer?: SECP256k1Signer): Promise<void> {
-    // @ts-ignore
+    const config = await getConfig();
     const tldData = config.signers[tld];
     let signer: SECP256k1Signer;
 
@@ -153,7 +152,7 @@ export class Writer {
     offset = 0,
     _signer?: SECP256k1Signer,
   ): Promise<number> {
-    // @ts-ignore
+    const config = await getConfig();
     const tldData = config.signers[tld];
     const createdAt = date || new Date();
 
@@ -177,7 +176,7 @@ export class Writer {
   }
 
   async writeAt (tld: string, offset = 0, buf: Buffer): Promise<void> {
-    // @ts-ignore
+    const config = await getConfig();
     const tldData = config.signers[tld];
     const createdAt = new Date();
 
@@ -191,7 +190,7 @@ export class Writer {
   }
 
   async writeEnvelopeAt(tld: string, envelope: Envelope, offset = 0, date?: Date, broadcast?: boolean): Promise<void> {
-    // @ts-ignore
+    const config = await getConfig();
     const tldData = config.signers[tld];
     const createdAt = date || new Date();
 

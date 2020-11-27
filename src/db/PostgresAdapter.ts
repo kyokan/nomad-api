@@ -12,8 +12,8 @@ import {extendFilter, Filter} from "../util/filter";
 import {parseUsername} from "../util/user";
 import {UserProfile} from "../constants";
 import {SubdomainDBRow} from "../services/subdomains";
-import config from "../../config.json";
 import {BlobInfo} from "fn-client/lib/fnd/BlobInfo";
+import {getConfig} from "../util/config";
 
 export type PostgresAdapterOpts = {
   user: string;
@@ -1250,7 +1250,7 @@ export default class PostgresAdapter {
     const client = await this.pool.connect();
 
     try {
-      // @ts-ignore
+      const config = await getConfig();
       const tldData = config.signers[tld];
 
       if (!tldData || !tldData.privateKey) throw new Error(`cannot find singer for ${tld}`);
