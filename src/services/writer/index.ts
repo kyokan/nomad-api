@@ -415,6 +415,7 @@ export class Writer {
       const blobName = req.params.blobName;
 
       trackAttempt('Get Blob Info', req, blobName);
+
       try {
         const info = await this.client.getBlobInfo(blobName);
         let offset = 0;

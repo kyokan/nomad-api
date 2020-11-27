@@ -19,7 +19,7 @@ export class ModerationsDAOImpl implements ModerationsDAO {
       const exists = this.engine.first('SELECT EXISTS(SELECT 1 FROM envelopes WHERE refhash = @refhash) AS result', {
         refhash: moderation.refhash,
       });
-      console.log({exists})
+
       if (exists!.result) {
         return;
       }
