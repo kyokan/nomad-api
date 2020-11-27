@@ -17,6 +17,7 @@ const API_KEY_LINE = 29;
 const BASE_PATH_LINE = 31;
 const HOST_LINE = 33;
 const PORT_LINE = 35;
+const CONFIRM_DEPTH = 90;
 
 export class FNDController {
   private daemon: ChildProcess | null = null;
@@ -65,6 +66,7 @@ export class FNDController {
     await this.setHeartbeat(config.heartbeartUrl);
     await this.setBasePath(config.handshakeBasePath);
     await this.setPort(config.handshakePort);
+    await this.setConfirmDepth(8);
   }
 
   startDaemon = async () => {
@@ -192,6 +194,13 @@ export class FNDController {
     const content = await fs.promises.readFile(`${fndHome}/config.toml`);
     const splits = content.toString('utf-8').split('\n');
     splits[PORT_LINE] = `  port = ${port}`;
+    return await fs.promises.writeFile(`${fndHome}/config.toml`, splits.join('\n'));
+  };
+
+  setConfirmDepth = async (depth: number) => {
+    const content = await fs.promises.readFile(`${fndHome}/config.toml`);
+    const splits = content.toString('utf-8').split('\n');
+    splits[CONFIRM_DEPTH] = `    confirmation_depth = ${depth}`;
     return await fs.promises.writeFile(`${fndHome}/config.toml`, splits.join('\n'));
   };
 
