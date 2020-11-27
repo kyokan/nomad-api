@@ -111,7 +111,7 @@ export class PostsDAOImpl implements PostsDAO {
   public insertRecord (blobInfo: BlobInfo): void {
     this.engine.withTx(() => {
       const exists = this.engine.first(`
-      SELECT EXISTS(SELECT 1 FROM record WHERE tld = @tld) AS result
+      SELECT EXISTS(SELECT 1 FROM records WHERE tld = @tld) AS result
       `, {
         tld: blobInfo.name,
       });
