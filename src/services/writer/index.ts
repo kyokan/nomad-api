@@ -32,6 +32,29 @@ export class Writer {
   }
 
   handlers = {
+    '/blob/:blobName/info': async (req: Request, res: Response) => {
+      const blobName = req.params.blobName;
+
+      try {
+        const info = await this.client.getBlobInfo(blobName);
+        let offset = 0;
+
+        await this.client.scanBlob(blobName, async (type, subtype, env) => {
+          const bytes = await env.toBytes();
+          offset = offset + bytes.length;
+          return true;
+        }, 8*1024).catch(() => null);
+
+        res.send(makeResponse({
+          ...info,
+          offset,
+        }));
+      } catch (e) {
+        return res.status(500)
+          .send(makeResponse(e.message, true));
+      }
+    },
+
     '/relayer/precommit': async (req: Request, res: Response) => {
       const {
         tld,
