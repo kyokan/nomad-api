@@ -6,6 +6,7 @@ import fs from "fs";
 import HSDService from "../hsd";
 const requestIp = require('request-ip');
 const fileUpload = require('express-fileupload');
+import {getLinkPreview} from 'link-preview-js';
 const port = process.env.PORT || 8082;
 
 let docsHTML: string;
@@ -74,6 +75,11 @@ export class RestServer {
         ...json,
         pool: undefined,
       }));
+    });
+
+    this.app.get('/preview', async (req, res) => {
+      const preview = await getLinkPreview(req.query.url);
+      res.send(preview);
     });
 
     this.app.get('/health', (req, res) => {
