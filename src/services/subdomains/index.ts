@@ -194,6 +194,7 @@ export class SubdomainManager {
       body,
       topic,
       reference,
+      subtype: '',
     };
 
     const tld = sessionName ? sessionTLD :  signedTLD;
@@ -238,6 +239,7 @@ export class SubdomainManager {
           body,
           topic,
           reference,
+          subtype: '',
         },
         createAt,
         nameIndex,
