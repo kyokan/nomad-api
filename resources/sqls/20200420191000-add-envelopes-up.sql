@@ -5,5 +5,7 @@ CREATE TABLE envelopes (
     network_id VARCHAR,
     refhash    VARCHAR     NOT NULL,
     created_at bigint      NOT NULL,
+    type       VARCHAR,
+    subtype    VARCHAR,
     UNIQUE (tld, subdomain, refhash)
 );

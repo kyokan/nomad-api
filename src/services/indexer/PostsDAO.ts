@@ -1,4 +1,4 @@
-import {Post} from 'fn-client/lib/application/Post';
+import {Post, PostType} from 'fn-client/lib/application/Post';
 import {Engine, Row} from './Engine';
 import {Envelope} from 'fn-client/lib/application/Envelope';
 import {Pageable} from './Pageable';
@@ -33,7 +33,7 @@ export class PostsDAOImpl implements PostsDAO {
     const envelopes: Envelope<Post>[] = [];
     this.engine.each(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
         WHERE e.tld = @tld AND e.subdomain = @subdomain AND p.id > @start
         ORDER BY p.id DESC
@@ -57,7 +57,7 @@ export class PostsDAOImpl implements PostsDAO {
 
     this.engine.each(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
         WHERE p.topic = @topic AND p.id > @start
         ORDER BY p.id DESC ${order === 'ASC' ? 'ASC' : 'DESC'}
@@ -198,7 +198,7 @@ export class PostsDAOImpl implements PostsDAO {
   private getPostByRefhashTags (refhash: string, includeTags: boolean): Envelope<Post> | null {
     const row = this.engine.first(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p
                  JOIN envelopes e ON p.envelope_id = e.id
         WHERE e.refhash = @refhash
@@ -228,6 +228,12 @@ export class PostsDAOImpl implements PostsDAO {
       );
     }
 
+    let subtype: PostType = '';
+
+    if (row.message_subtype === 'L') {
+      subtype = 'LINK';
+    }
+
     return new Envelope<Post>(
       row.envelope_id,
       row.tld,
@@ -245,6 +251,7 @@ export class PostsDAOImpl implements PostsDAO {
         row.reply_count,
         row.like_count,
         row.pin_count,
+        subtype,
       ),
       null
     );
@@ -252,15 +259,22 @@ export class PostsDAOImpl implements PostsDAO {
 }
 
 export function insertEnvelope (engine: Engine, envelope: Envelope<any>): number {
+  const wireEnv = envelope.toWire(0);
+  const type = wireEnv.message.type.toString('utf-8');
+  const subtype = wireEnv.message.subtype.toString('utf-8')
+    .replace(/[\x00-\x1F\x7F-\x9F]/g, "");
+
   engine.exec(`
-      INSERT INTO envelopes (tld, subdomain, network_id, refhash, created_at)
-      VALUES (@tld, @subdomain, @networkId, @refhash, @createdAt)
+      INSERT INTO envelopes (tld, subdomain, network_id, refhash, created_at, type, subtype)
+      VALUES (@tld, @subdomain, @networkId, @refhash, @createdAt, @type, @subtype)
   `, {
     tld: envelope.tld,
     subdomain: envelope.subdomain,
     networkId: envelope.networkId,
     refhash: envelope.refhash,
     createdAt: envelope.createdAt.getTime() / 1000,
+    type,
+    subtype,
   });
   const row = engine.first('SELECT last_insert_rowid() AS id', {});
   return row!.id;

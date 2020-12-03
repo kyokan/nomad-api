@@ -101,6 +101,7 @@ export class Writer {
           return res.status(400)
             .send(makeResponse('invalid envelope', true));
         }
+
         const {sealedHash, txId} = await this.preCommit(tld, envelope, offset, createdAt, truncate);
 
         res.send(makeResponse({

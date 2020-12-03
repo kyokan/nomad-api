@@ -87,6 +87,8 @@ function mapWirePostToDomainPost(wirePost: WirePost): DomainPost {
     }
   }
 
+  const wireSubtype = wirePost.subtype.toString('utf-8');
+
   return new DomainPost(
     0,
     wirePost.body,
@@ -97,6 +99,9 @@ function mapWirePostToDomainPost(wirePost: WirePost): DomainPost {
     0,
     0,
     0,
+    wireSubtype === WirePost.LINK_SUBTYPE.toString('utf-8')
+      ? 'LINK'
+      : '',
   );
 }
 
@@ -134,7 +139,6 @@ export async function mapBodyToEnvelope(tld: string, params: WriterEnvelopeParam
     post,
     connection,
     moderation,
-    media,
     refhash,
     networkId,
     createAt,
@@ -148,7 +152,6 @@ export async function mapBodyToEnvelope(tld: string, params: WriterEnvelopeParam
   let envelope: DomainEnvelope<any> | undefined;
 
   if (post) {
-
     if (post.body.length > 4000) {
       return Promise.reject(new Error('post body cannot exceed 4000 characters'));
     }
@@ -168,6 +171,7 @@ export async function mapBodyToEnvelope(tld: string, params: WriterEnvelopeParam
         0,
         0,
         0,
+        post.subtype,
       )
     );
   }
@@ -238,6 +242,7 @@ export async function createEnvelope(tld: string, params: WriterEnvelopeParams):
         0,
         0,
         0,
+        post.subtype
       ),
       null,
     );

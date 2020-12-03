@@ -84,7 +84,7 @@
     "elliptic": "^6.5.2",
     "express": "^4.17.1",
     "express-fileupload": "^1.1.7-alpha.3",
-    "fn-client": "^0.4.0",
+    "fn-client": "^0.5.0",
     "ipfs": "^0.46.0",
     "isomorphic-fetch": "^2.2.1",
     "link-preview-js": "^2.0.5",

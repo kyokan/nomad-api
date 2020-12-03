@@ -1,6 +1,6 @@
 import {Pool, PoolClient} from 'pg';
 import {Envelope as DomainEnvelope} from 'fn-client/lib/application/Envelope';
-import {Post as DomainPost} from 'fn-client/lib/application/Post';
+import {Post as DomainPost, PostType} from 'fn-client/lib/application/Post';
 import {
   Connection as DomainConnection,
   Follow as DomainFollow,
@@ -69,12 +69,16 @@ export default class PostgresAdapter {
 
     try {
       await client.query('BEGIN');
+      const wireEnv = env.toWire(0);
       const sql = `
-        INSERT INTO envelopes (tld, subdomain, network_id, refhash, created_at)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO envelopes (tld, subdomain, network_id, refhash, created_at, type, subtype)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id
       `;
 
+      const type = wireEnv.message.type.toString('utf-8');
+      const subtype = wireEnv.message.subtype.toString('utf-8')
+        .replace(/[\x00-\x1F\x7F-\x9F]/g, "");
       const {
         rows: [{id: envId}]
       } = await client.query(sql, [
@@ -83,6 +87,8 @@ export default class PostgresAdapter {
         env.networkId,
         env.refhash,
         env.createdAt.getTime(),
+        type,
+        subtype,
       ]);
       await client.query('COMMIT');
       return envId;
@@ -332,7 +338,7 @@ export default class PostgresAdapter {
     const client = _client || await this.pool.connect();
     const { rows } = await client.query(`
       SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-          p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+          p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
       FROM posts p
                JOIN envelopes e ON p.envelope_id = e.id
       WHERE e.refhash = $1
@@ -365,6 +371,12 @@ export default class PostgresAdapter {
     const timestamp = +row.created_at;
     const createdAt: Date = new Date(timestamp);
 
+    let subtype: PostType = '';
+
+    if (row.message_subtype === 'L') {
+      subtype = 'LINK';
+    }
+
     const env = new DomainEnvelope<DomainPost>(
       row.envelope_id,
       row.tld,
@@ -382,6 +394,7 @@ export default class PostgresAdapter {
         row.reply_count,
         row.like_count,
         row.pin_count,
+        subtype,
       ),
       null
     );
@@ -402,7 +415,7 @@ export default class PostgresAdapter {
 
       const {rows} = await client.query(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
         WHERE p.topic = 'channelpost'
         ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
@@ -476,7 +489,7 @@ export default class PostgresAdapter {
 
       const {rows} = await client.query(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
         WHERE (p.reference is NULL AND (p.topic NOT LIKE '.%' OR p.topic is NULL))
         ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
@@ -524,7 +537,7 @@ export default class PostgresAdapter {
 
       const {rows} = await client.query(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
         WHERE (p.reference is NULL AND p.topic = '.channel' AND e.tld = $3 AND e.subdomain = $4)
         ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
@@ -573,7 +586,7 @@ export default class PostgresAdapter {
 
       const {rows} = await client.query(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
         WHERE (p.reference is NULL AND (p.topic = '.channel'))
         ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
@@ -620,7 +633,7 @@ export default class PostgresAdapter {
 
       const {rows} = await client.query(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
         WHERE p.reference = $3 AND (p.topic NOT LIKE '.%' OR p.topic is NULL) AND p.id ${order === 'DESC' ? '<' : '>'} $1
         ORDER BY p.id ${order === 'ASC' ? 'ASC' : 'DESC'}
@@ -661,7 +674,7 @@ export default class PostgresAdapter {
     try {
       const sql = `
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-        p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
       `;
 
@@ -799,7 +812,7 @@ export default class PostgresAdapter {
       if (postedBy.length) {
         postedBySelect = `
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p
         JOIN envelopes e ON p.envelope_id = e.id
         ${allowedTagsJoin}
@@ -822,7 +835,7 @@ export default class PostgresAdapter {
       if (repliedBy.length) {
         repliedBySelect = `
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p
         JOIN envelopes e ON p.envelope_id = e.id
         ${allowedTagsJoin}
@@ -845,7 +858,7 @@ export default class PostgresAdapter {
       if (likedBy.length) {
         likedBySelect = `
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p
         LEFT JOIN envelopes e ON p.envelope_id = e.id
         ${allowedTagsJoin}
@@ -1411,7 +1424,7 @@ export default class PostgresAdapter {
 
     const {rows} = await client.query(`
       SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-              p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+              p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
       FROM posts p JOIN envelopes e ON p.envelope_id = e.id
       WHERE e.tld = $1
     `, [ tld ]);

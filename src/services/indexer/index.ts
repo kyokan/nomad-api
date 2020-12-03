@@ -8,7 +8,7 @@ import {
 } from "fn-client/lib/wire/streams";
 import {Envelope as WireEnvelope} from "fn-client/lib/wire/Envelope";
 import {Envelope as DomainEnvelope} from 'fn-client/lib/application/Envelope';
-import {Post as DomainPost} from 'fn-client/lib/application/Post';
+import {Post as DomainPost, PostType} from 'fn-client/lib/application/Post';
 import {
   Connection as DomainConnection,
   Follow as DomainFollow,
@@ -457,7 +457,7 @@ export class IndexerManager {
     if (postedBy.length) {
       postedBySelect = `
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p
         JOIN envelopes e ON p.envelope_id = e.id
         ${allowedTagsJoin}
@@ -480,7 +480,7 @@ export class IndexerManager {
     if (repliedBy.length) {
       repliedBySelect = `
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p
         JOIN envelopes e ON p.envelope_id = e.id
         ${allowedTagsJoin}
@@ -503,7 +503,7 @@ export class IndexerManager {
     if (likedBy.length) {
       likedBySelect = `
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p
         LEFT JOIN envelopes e ON p.envelope_id = e.id
         ${allowedTagsJoin}
@@ -557,7 +557,7 @@ export class IndexerManager {
       : defaultOffset || 999999999999999999999;
     this.engine.each(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
         WHERE p.reference = @reference AND (p.topic NOT LIKE ".%" OR p.topic is NULL) AND p.id ${order === 'DESC' ? '<' : '>'} @start
         ORDER BY p.id ${order === 'ASC' ? 'ASC' : 'DESC'}
@@ -846,7 +846,7 @@ export class IndexerManager {
 
     this.engine.each(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
         WHERE (p.reference is NULL AND p.topic = 'channelpost')
         ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
@@ -875,7 +875,7 @@ export class IndexerManager {
 
     this.engine.each(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
         WHERE (p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL))
         ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
@@ -905,7 +905,7 @@ export class IndexerManager {
 
     this.engine.each(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
         WHERE (p.reference is NULL AND p.topic = '.channel' AND e.tld = @tld AND e.subdomain = @subdomain)
         ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
@@ -936,7 +936,7 @@ export class IndexerManager {
 
     this.engine.each(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
         WHERE (p.reference is NULL AND (p.topic = '.channel'))
         ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
@@ -1034,7 +1034,7 @@ export class IndexerManager {
 
     this.engine.each(`
       SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-              p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+              p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
       FROM posts p JOIN envelopes e ON p.envelope_id = e.id
       WHERE e.tld = @tld
     `, { tld, subdomain }, row => {
@@ -1080,6 +1080,12 @@ export class IndexerManager {
       );
     }
 
+    let subtype: PostType = '';
+
+    if (row.message_subtype === 'L') {
+      subtype = 'LINK';
+    }
+
     return new DomainEnvelope<DomainPost>(
       row.envelope_id,
       row.tld,
@@ -1097,6 +1103,7 @@ export class IndexerManager {
         row.reply_count,
         row.like_count,
         row.pin_count,
+        subtype,
       ),
       null
     );
@@ -1163,7 +1170,7 @@ export class IndexerManager {
   scanCommentCounts = async (): Promise<{[parent: string]: number}> => {
     const sql = `
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-        p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count
+        p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
     `;
 
