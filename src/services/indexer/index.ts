@@ -653,7 +653,7 @@ export class IndexerManager {
     const displayName = this.engine.first(`
       SELECT e.created_at, p.reference
       FROM posts p JOIN envelopes e ON p.envelope_id = e.id
-      WHERE tld = @tld AND subdomain = @subdomain AND topic = ".profile_picture_refhash"
+      WHERE tld = @tld AND subdomain = @subdomain AND topic = ".profile_picture_url"
       ORDER BY e.created_at DESC
     `, {
       tld: dotName(tld),
@@ -669,7 +669,7 @@ export class IndexerManager {
     const displayName = this.engine.first(`
       SELECT e.created_at, p.reference
       FROM posts p JOIN envelopes e ON p.envelope_id = e.id
-      WHERE tld = @tld AND subdomain = @subdomain AND topic = ".cover_image_refhash"
+      WHERE tld = @tld AND subdomain = @subdomain AND topic = ".cover_image_url"
       ORDER BY e.created_at DESC
     `, {
       tld: dotName(tld),

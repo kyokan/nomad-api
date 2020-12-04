@@ -1064,8 +1064,8 @@ export default class PostgresAdapter {
 
     try {
       const displayName = await this.getUserData(username, '.display_name', client);
-      const profilePicture = await this.getUserData(username, '.profile_picture_refhash', client);
-      const coverImage = await this.getUserData(username, '.cover_image_refhash', client);
+      const profilePicture = await this.getUserData(username, '.profile_picture_url', client);
+      const coverImage = await this.getUserData(username, '.cover_image_url', client);
       const bio = await this.getUserData(username, '.user_bio', client);
       const avatarType = await this.getUserData(username, '.avatar_type', client);
       const {FOLLOW: followings, BLOCK: blockings} = await this.getUserConnecteesStats(username, client);

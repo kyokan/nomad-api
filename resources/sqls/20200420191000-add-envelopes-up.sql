@@ -1,5 +1,5 @@
 CREATE TABLE envelopes (
-    id         SERIAL PRIMARY KEY,
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
     tld        VARCHAR     NOT NULL,
     subdomain  VARCHAR     NOT NULL,
     network_id VARCHAR,
@@ -9,3 +9,6 @@ CREATE TABLE envelopes (
     subtype    VARCHAR,
     UNIQUE (tld, subdomain, refhash)
 );
+
+CREATE UNIQUE INDEX envelopes_tld_subdomain_refhash_key
+ON envelopes(tld, subdomain, refhash);
