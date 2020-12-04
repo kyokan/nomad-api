@@ -651,7 +651,7 @@ export class IndexerManager {
     const { tld, subdomain } = parseUsername(username);
 
     const displayName = this.engine.first(`
-      SELECT e.created_at, p.reference
+      SELECT e.created_at, p.body
       FROM posts p JOIN envelopes e ON p.envelope_id = e.id
       WHERE tld = @tld AND subdomain = @subdomain AND topic = ".profile_picture_url"
       ORDER BY e.created_at DESC
@@ -660,14 +660,14 @@ export class IndexerManager {
       subdomain,
     });
 
-    return displayName?.reference || '';
+    return displayName?.body || '';
   };
 
   private getUserCoverImage = async (username: string): Promise<string|undefined> => {
     const { tld, subdomain } = parseUsername(username);
 
     const displayName = this.engine.first(`
-      SELECT e.created_at, p.reference
+      SELECT e.created_at, p.body
       FROM posts p JOIN envelopes e ON p.envelope_id = e.id
       WHERE tld = @tld AND subdomain = @subdomain AND topic = ".cover_image_url"
       ORDER BY e.created_at DESC
@@ -676,7 +676,7 @@ export class IndexerManager {
       subdomain,
     });
 
-    return displayName?.reference || '';
+    return displayName?.body || '';
   };
 
   private getFollowingCounts = async (username: string): Promise<number> => {
