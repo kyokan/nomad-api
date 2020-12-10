@@ -5,7 +5,7 @@ import {
   Connection as DomainConnection,
   Follow as DomainFollow,
 } from 'fn-client/lib/application/Connection';
-import {Moderation as DomainModeration} from 'fn-client/lib/application/Moderation';
+import {Moderation as DomainModeration, ModerationType} from 'fn-client/lib/application/Moderation';
 import {Pageable} from '../services/indexer/Pageable';
 import logger from "../util/logger";
 import {extendFilter, Filter} from "../util/filter";
@@ -14,6 +14,8 @@ import {UserProfile} from "../constants";
 import {SubdomainDBRow} from "../services/subdomains";
 import {BlobInfo} from "fn-client/lib/fnd/BlobInfo";
 import {getConfig} from "../util/config";
+import {SELECT_POSTS} from "../util/db";
+import {parseRefhash} from "fn-client/lib/wire/refhash";
 
 export type PostgresAdapterOpts = {
   user: string;
@@ -351,6 +353,49 @@ export default class PostgresAdapter {
     return await this.mapPost(rows[0], includeTags, client);
   }
 
+  async getModerationSettingByRefhash(refhash: string, _client?: PoolClient): Promise<'SETTINGS__FOLLOWS_ONLY'|'SETTINGS__NO_BLOCKS'|null> {
+    const client = _client || await this.pool.connect();
+    const { tld } = parseRefhash(refhash);
+    const { rows } = await client.query(`
+      SELECT 
+        e.id as envelope_id,
+        e.tld, 
+        e.subdomain, 
+        e.network_id, 
+        e.refhash, 
+        e.created_at,  
+        e.type as message_type, 
+        e.subtype as message_subtype,
+        m.reference as reference,
+        m.moderation_type as moderation_type
+      FROM moderations m
+      JOIN envelopes e ON m.envelope_id = e.id AND m.moderation_type IN ('SETTINGS__FOLLOWS_ONLY', 'SETTINGS__NO_BLOCKS')
+      WHERE m.reference = $1 AND e.tld = $2
+      ORDER BY e.created_at DESC
+    `, [
+      refhash,
+      tld,
+    ]);
+
+    if (!_client) client.release();
+
+    if (!rows.length) {
+      return null;
+    }
+
+    const {moderation_type} = rows[0];
+
+    if (moderation_type === 'SETTINGS__FOLLOWS_ONLY') {
+      return 'SETTINGS__FOLLOWS_ONLY';
+    }
+
+    if (moderation_type === 'SETTINGS__NO_BLOCKS') {
+      return 'SETTINGS__NO_BLOCKS';
+    }
+
+    return null;
+  }
+
   // @ts-ignore
   async mapPost(row?: { [k: string]: any }, includeTags: boolean,  _client: PoolClient): Promise<DomainEnvelope<DomainPost> | null> {
     if (!row) return null;
@@ -377,6 +422,9 @@ export default class PostgresAdapter {
       subtype = 'LINK';
     }
 
+    const originalRefhash = await this.getOriginalPosterHash(row.refhash, _client);
+    const moderationType = await this.getModerationSettingByRefhash(originalRefhash, _client);
+
     const env = new DomainEnvelope<DomainPost>(
       row.envelope_id,
       row.tld,
@@ -394,6 +442,7 @@ export default class PostgresAdapter {
         row.reply_count,
         row.like_count,
         row.pin_count,
+        moderationType,
         subtype,
       ),
       null
@@ -620,22 +669,103 @@ export default class PostgresAdapter {
     }
   };
 
-  getCommentsByHash = async (reference: string | null, order?: 'ASC' | 'DESC', limit = 20,  defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
-    if (limit <= 0) {
+  getParentHash = async (reference: string | null, _client: PoolClient): Promise<string | null> =>  {
+    if (!reference) return null;
+
+    const client = _client;
+
+    const {rows} = await client.query(`
+        SELECT p.reference FROM posts p 
+        JOIN envelopes e ON p.envelope_id = e.id AND e.refhash = $1
+        AND (p.topic NOT LIKE '.%' OR p.topic is NULL)
+    `, [
+      reference,
+    ]);
+
+    if (!rows.length) return null;
+
+    return rows[0].reference;
+  };
+
+  getOriginalPosterHash = async (reference: string, _client: PoolClient): Promise<string> => {
+    const client = _client;
+    const parent = await this.getParentHash(reference, client);
+    if (!parent) return reference;
+    return this.getOriginalPosterHash(parent, client);
+  };
+
+  getCommentsByHash = async (
+    reference: string | null,
+    order?: 'ASC' | 'DESC',
+    limit = 20,
+    defaultOffset?: number,
+    extend: {follows?: string[]; blocks?: string[]} = {},
+    override: {follows?: string[]; blocks?: string[]} = {},
+  ): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (limit <= 0 || !reference) {
       return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
     }
 
     const client = await this.pool.connect();
 
     try {
+      const originalRefhash = await this.getOriginalPosterHash(reference, client);
+      const {tld: originalPosterTLD} = parseRefhash(originalRefhash);
+      const moderationSetting = await this.getModerationSettingByRefhash(originalRefhash, client);
+      const follows = override.follows
+        ? override.follows
+        : extend.follows
+          ? extend.follows.concat(originalPosterTLD)
+          : moderationSetting === 'SETTINGS__FOLLOWS_ONLY'
+            ? [originalPosterTLD]
+            : [];
+      const blocks = override.blocks
+        ? override.blocks
+        : extend.blocks
+          ? extend.blocks.concat(originalPosterTLD)
+          : moderationSetting === 'SETTINGS__NO_BLOCKS'
+            ? [originalPosterTLD]
+            : [];
+
+      let JOIN_CONN = '';
+
+      if (follows.length) {
+        JOIN_CONN = `
+          LEFT JOIN connections follow ON follow.tld = e.tld AND follow.connection_type = 'FOLLOW'
+          LEFT JOIN envelopes followenv ON followenv.id = follow.envelope_id 
+          AND followenv.tld IN (${follows.map(f => `'${f}'`).join(',')})
+        `
+      }
+
+      if (blocks.length) {
+        JOIN_CONN = `
+          LEFT JOIN connections block ON block.tld = e.tld AND block.connection_type = 'BLOCK'
+          LEFT JOIN envelopes blockenv ON blockenv.id = block.envelope_id 
+          AND blockenv.tld IN (${blocks.map(f => `'${f}'`).join(',')})
+        `
+      }
+
+      let WHERE_STMT = `WHERE true`;
+
+      if (follows.length && blocks.length) {
+        WHERE_STMT = `WHERE e.tld = '${originalPosterTLD}' OR (followenv IS NOT NULL AND blockenv IS NULL)`;
+      } else if (follows.length) {
+        WHERE_STMT = `WHERE e.tld = '${originalPosterTLD}' OR followenv IS NOT NULL`;
+      } else if (blocks.length) {
+        WHERE_STMT = `WHERE e.tld = '${originalPosterTLD}' OR blockenv IS NULL`;
+      }
+
       const envelopes: DomainEnvelope<DomainPost>[] = [];
       const offset = order === 'ASC' ? defaultOffset || 0 : defaultOffset || 9999999;
 
       const {rows} = await client.query(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
-        FROM posts p JOIN envelopes e ON p.envelope_id = e.id
-        WHERE p.reference = $3 AND (p.topic NOT LIKE '.%' OR p.topic is NULL) AND p.id ${order === 'DESC' ? '<' : '>'} $1
+        FROM posts p JOIN envelopes e ON p.envelope_id = e.id AND p.reference = $3
+        ${JOIN_CONN}
+        ${WHERE_STMT}
+        AND (p.topic NOT LIKE '.%' OR p.topic is NULL) 
+        AND p.id ${order === 'DESC' ? '<' : '>'} $1
         ORDER BY p.id ${order === 'ASC' ? 'ASC' : 'DESC'}
         LIMIT $2
     `, [
@@ -811,10 +941,7 @@ export default class PostgresAdapter {
 
       if (postedBy.length) {
         postedBySelect = `
-        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
-        FROM posts p
-        JOIN envelopes e ON p.envelope_id = e.id
+        ${SELECT_POSTS}
         ${allowedTagsJoin}
       `;
 
@@ -834,10 +961,7 @@ export default class PostgresAdapter {
 
       if (repliedBy.length) {
         repliedBySelect = `
-        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
-        FROM posts p
-        JOIN envelopes e ON p.envelope_id = e.id
+        ${SELECT_POSTS}
         ${allowedTagsJoin}
       `;
 
@@ -857,13 +981,10 @@ export default class PostgresAdapter {
 
       if (likedBy.length) {
         likedBySelect = `
-        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
-        FROM posts p
-        LEFT JOIN envelopes e ON p.envelope_id = e.id
+        ${SELECT_POSTS}
         ${allowedTagsJoin}
         JOIN (moderations mod JOIN envelopes env ON mod.envelope_id = env.id)
-        ON mod.reference = e.refhash
+        ON mod.reference = e.refhash AND mod.moderation_type = 'LIKE'
       `;
 
         if (!likedBy.includes('*')) {

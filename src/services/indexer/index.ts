@@ -508,7 +508,7 @@ export class IndexerManager {
         LEFT JOIN envelopes e ON p.envelope_id = e.id
         ${allowedTagsJoin}
         JOIN (moderations mod JOIN envelopes env ON mod.envelope_id = env.id)
-        ON mod.reference = e.refhash
+        ON mod.reference = e.refhash AND mod.moderation_type = 'LIKE'
       `;
 
       if (!likedBy.includes('*')) {
@@ -546,7 +546,12 @@ export class IndexerManager {
     );
   };
 
-  getCommentsByHash = async (reference: string | null, order?: 'ASC' | 'DESC', limit = 20,  defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+  getCommentsByHash = async (
+    reference: string | null,
+    order?: 'ASC' | 'DESC',
+    limit = 20,
+    defaultOffset?: number,
+  ): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
     if (this.pgClient) {
       return this.pgClient.getCommentsByHash(reference, order, limit, defaultOffset);
     }
@@ -1103,6 +1108,7 @@ export class IndexerManager {
         row.reply_count,
         row.like_count,
         row.pin_count,
+        null,
         subtype,
       ),
       null
