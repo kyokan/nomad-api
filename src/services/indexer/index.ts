@@ -788,7 +788,7 @@ export class IndexerManager {
       registered = !!rec;
     }
 
-    if (!confirmed) {
+    if (true) {
       try {
         const {chain: {height}} = await this.hsdClient?.fetchHSDInfo();
         const { result: { info: {
@@ -796,14 +796,15 @@ export class IndexerManager {
         } } } = await this.hsdClient?.fetchNameInfo(username);
         const { result: { address: { string: address } } } = await this.hsdClient?.fetchTXOut(hash, index);
         const coins = await this.hsdClient?.fetchCoins(address);
-
         for (const coin of coins) {
           switch (coin.covenant?.action) {
             case "UPDATE":
             case "REGISTER":
-              const txt = Buffer.from(coin.covenant?.items[2], 'hex')
+              const splits = Buffer.from(coin.covenant?.items[2], 'hex')
                 .toString('utf-8')
-                .slice(4);
+                .split('-');
+              const txt = splits[1] || '';
+
               if (txt[0] === 'f' && txt.length === 45) {
                 if (coin.height + CONFIRMATION_HEIGHT < height) {
                   confirmed = true;
