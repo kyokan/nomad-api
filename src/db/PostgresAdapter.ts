@@ -529,8 +529,8 @@ export default class PostgresAdapter {
     order: 'ASC' | 'DESC' = 'DESC',
     limit= 20,
     defaultOffset?: number,
-    extend: {follows?: string[]; blocks?: string[]} = {},
-    override: {follows?: string[]; blocks?: string[]} = {},
+    extend: {follows?: string[]|null; blocks?: string[]|null} = {},
+    override: {follows?: string[]|null; blocks?: string[]|null} = {},
   ): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
     if (limit <= 0) {
       return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
@@ -542,11 +542,21 @@ export default class PostgresAdapter {
       const envelopes: DomainEnvelope<DomainPost>[] = [];
       const offset = defaultOffset || 0;
 
-      const blocks = override.blocks
-        ? override.blocks
-        : extend.blocks?.length
-          ? extend.blocks.concat([])
-          : [];
+      const blocks = override.blocks === null
+        ? []
+        : override.blocks
+          ? override.blocks
+          : extend.blocks?.length
+            ? extend.blocks.concat([])
+            : [];
+
+      const follows = override.follows === null
+        ? []
+        : override.follows
+          ? override.follows
+          : extend.follows?.length
+            ? extend.follows.concat([])
+            : [];
 
       let WHERE_STMT = '';
       const SELECT_BLOCK = `
@@ -555,8 +565,29 @@ export default class PostgresAdapter {
             INNER JOIN envelopes blockenv ON blockenv.id = block.envelope_id
             AND blockenv.tld IN (${blocks.map(tld => `'${tld}'`).join(', ')})
       `;
+      const SELECT_FOLLOW = `
+            SELECT 1 FROM posts sp JOIN envelopes se ON e.id = se.id AND sp.envelope_id = se.id 
+            LEFT JOIN connections follow ON follow.tld = se.tld AND follow.connection_type = 'FOLLOW'
+            INNER JOIN envelopes followenv ON followenv.id = follow.envelope_id
+            AND followenv.tld IN (${follows.map(tld => `'${tld}'`).join(', ')})
+      `;
 
-      if (blocks.length) {
+      if (follows.length && blocks.length) {
+        WHERE_STMT = `
+          WHERE EXISTS (
+            ${SELECT_FOLLOW}
+          )
+          AND NOT EXISTS (
+            ${SELECT_BLOCK}
+          )
+        `;
+      } else if (follows.length) {
+        WHERE_STMT = `
+          WHERE EXISTS (
+            ${SELECT_FOLLOW}
+          )
+        `;
+      } else if (blocks.length) {
         WHERE_STMT = `
           WHERE NOT EXISTS (
             ${SELECT_BLOCK}
@@ -751,16 +782,22 @@ export default class PostgresAdapter {
         ? [originalPosterTLD]
         : [];
 
-      const follows = override.follows
-        ? override.follows
-        : extend.follows?.length
-          ? extend.follows.concat(opFollows)
-          : opFollows;
-      const blocks = override.blocks
-        ? override.blocks
-        : extend.blocks?.length
-          ? extend.blocks.concat(opBlocks)
-          : opBlocks;
+
+      const blocks = override.blocks === null
+        ? []
+        : override.blocks
+          ? override.blocks
+          : extend.blocks?.length
+            ? extend.blocks.concat(opBlocks)
+            : opBlocks;
+
+      const follows = override.follows === null
+        ? []
+        : override.follows
+          ? override.follows
+          : extend.follows?.length
+            ? extend.follows.concat(opFollows)
+            : opFollows;
 
       let WHERE_STMT = '';
       const SELECT_FOLLOW = `
@@ -806,6 +843,12 @@ export default class PostgresAdapter {
       const envelopes: DomainEnvelope<DomainPost>[] = [];
       const offset = order === 'ASC' ? defaultOffset || 0 : defaultOffset || 9999999;
 
+      const queryValues = [offset, limit, reference];
+
+      if (follows.length || blocks.length) {
+        queryValues.push(originalPosterTLD);
+      }
+
       const {rows} = await client.query(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
@@ -815,12 +858,7 @@ export default class PostgresAdapter {
         AND p.id ${order === 'DESC' ? '<' : '>'} $1
         ORDER BY p.id ${order === 'ASC' ? 'ASC' : 'DESC'}
         LIMIT $2
-    `, [
-        offset,
-        limit,
-        reference,
-        originalPosterTLD,
-      ]);
+    `, queryValues);
 
       for (let i = 0; i < rows.length; i++) {
         const post = await this.mapPost(rows[i], true, client);

@@ -113,11 +113,26 @@ export class IndexerManager {
     '/posts': async (req: Request, res: Response) => {
       trackAttempt('Get All Posts', req);
       try {
-        const {extendBlockSrc} = decodeQueryParams(req.query);
+        const {
+          extendBlockSrc,
+          extendFollowSrc,
+          overrideBlockSrc,
+          overrideFollowSrc,
+        } = decodeQueryParams(req.query);
         const { order, offset, limit } = req.query || {};
-        const posts = await this.getPosts(order, limit, offset, {
-          blocks: extendBlockSrc,
-        });
+        const posts = await this.getPosts(
+          order,
+          limit,
+          offset,
+          {
+            blocks: extendBlockSrc,
+            follows: extendFollowSrc,
+          },
+          {
+            blocks: overrideBlockSrc,
+            follows: overrideFollowSrc,
+          },
+        );
         res.send(makeResponse(posts));
       } catch (e) {
         res.status(500).send(makeResponse(e.message, true));
@@ -136,7 +151,12 @@ export class IndexerManager {
 
     '/posts/:hash/comments': async (req: Request, res: Response) =>  {
       trackAttempt('Get Post Comments', req, req.params.hash);
-      const {extendBlockSrc} = decodeQueryParams(req.query);
+      const {
+        extendBlockSrc,
+        extendFollowSrc,
+        overrideBlockSrc,
+        overrideFollowSrc,
+      } = decodeQueryParams(req.query);
       const { order, offset, limit } = req.query || {};
       const post = await this.getCommentsByHash(
         req.params.hash,
@@ -145,6 +165,11 @@ export class IndexerManager {
         offset,
         {
           blocks: extendBlockSrc,
+          follows: extendFollowSrc,
+        },
+        {
+          blocks: overrideBlockSrc,
+          follows: overrideFollowSrc,
         },
       );
       res.send(makeResponse(post));
@@ -563,8 +588,8 @@ export class IndexerManager {
     order?: 'ASC' | 'DESC',
     limit = 20,
     defaultOffset?: number,
-    extend: {follows?: string[]; blocks?: string[]} = {},
-    override: {follows?: string[]; blocks?: string[]} = {},
+    extend: {follows?: string[]|null; blocks?: string[]|null} = {},
+    override: {follows?: string[]|null; blocks?: string[]|null} = {},
   ): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
     if (this.pgClient) {
       return this.pgClient.getCommentsByHash(reference, order, limit, defaultOffset, extend, override);
@@ -788,7 +813,7 @@ export class IndexerManager {
       registered = !!rec;
     }
 
-    if (true) {
+    if (!confirmed) {
       try {
         const {chain: {height}} = await this.hsdClient?.fetchHSDInfo();
         const { result: { info: {
@@ -892,8 +917,8 @@ export class IndexerManager {
     order: 'ASC' | 'DESC' = 'DESC',
     limit= 20,
     defaultOffset?: number,
-    extend: {follows?: string[]; blocks?: string[]} = {},
-    override: {follows?: string[]; blocks?: string[]} = {},
+    extend: {follows?: string[]|null; blocks?: string[]|null} = {},
+    override: {follows?: string[]|null; blocks?: string[]|null} = {},
   ): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
     if (this.pgClient) return this.pgClient.getPosts(order, limit, defaultOffset, extend, override);
 

@@ -27,9 +27,13 @@ export const decodeQueryParams = (params: {[k: string]: string} = {}) => {
   };
 };
 
-function inflateParamList (param?: string[]|string): string[]|undefined {
+function inflateParamList (param?: string[]|string): string[] | undefined | null   {
   if (typeof param === 'undefined') {
     return param;
+  }
+
+  if (param === '*') {
+    return null;
   }
 
   return Array.isArray(param)

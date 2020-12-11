@@ -99,9 +99,11 @@ function mapWirePostToDomainPost(wirePost: WirePost): DomainPost {
     0,
     0,
     0,
+    undefined,
     wireSubtype === WirePost.LINK_SUBTYPE.toString('utf-8')
       ? 'LINK'
       : '',
+
   );
 }
 
@@ -171,6 +173,7 @@ export async function mapBodyToEnvelope(tld: string, params: WriterEnvelopeParam
         0,
         0,
         0,
+        undefined,
         post.subtype,
       )
     );
@@ -242,6 +245,7 @@ export async function createEnvelope(tld: string, params: WriterEnvelopeParams):
         0,
         0,
         0,
+        undefined,
         post.subtype
       ),
       null,
