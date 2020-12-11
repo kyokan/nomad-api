@@ -28,7 +28,7 @@ import * as fs from "fs";
 import logger from "../../util/logger";
 import {UserProfile} from "../../constants";
 import {Express, Request, Response} from "express";
-import {makeResponse} from "../../util/rest";
+import {decodeQueryParams, makeResponse} from "../../util/rest";
 import bodyParser from "body-parser";
 const jsonParser = bodyParser.json();
 import Avatars from '@dicebear/avatars';
@@ -113,8 +113,11 @@ export class IndexerManager {
     '/posts': async (req: Request, res: Response) => {
       trackAttempt('Get All Posts', req);
       try {
+        const {extendBlockSrc} = decodeQueryParams(req.query);
         const { order, offset, limit } = req.query || {};
-        const posts = await this.getPosts(order, limit, offset);
+        const posts = await this.getPosts(order, limit, offset, {
+          blocks: extendBlockSrc,
+        });
         res.send(makeResponse(posts));
       } catch (e) {
         res.status(500).send(makeResponse(e.message, true));
@@ -133,8 +136,17 @@ export class IndexerManager {
 
     '/posts/:hash/comments': async (req: Request, res: Response) =>  {
       trackAttempt('Get Post Comments', req, req.params.hash);
-      const { order, offset } = req.query || {};
-      const post = await this.getCommentsByHash(req.params.hash, order, offset);
+      const {extendBlockSrc} = decodeQueryParams(req.query);
+      const { order, offset, limit } = req.query || {};
+      const post = await this.getCommentsByHash(
+        req.params.hash,
+        order,
+        limit,
+        offset,
+        {
+          blocks: extendBlockSrc,
+        },
+      );
       res.send(makeResponse(post));
     },
     //
@@ -551,9 +563,11 @@ export class IndexerManager {
     order?: 'ASC' | 'DESC',
     limit = 20,
     defaultOffset?: number,
+    extend: {follows?: string[]; blocks?: string[]} = {},
+    override: {follows?: string[]; blocks?: string[]} = {},
   ): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
     if (this.pgClient) {
-      return this.pgClient.getCommentsByHash(reference, order, limit, defaultOffset);
+      return this.pgClient.getCommentsByHash(reference, order, limit, defaultOffset, extend, override);
     }
 
     const envelopes: DomainEnvelope<DomainPost>[] = [];
@@ -873,8 +887,15 @@ export class IndexerManager {
     );
   };
 
-  getPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
-    if (this.pgClient) return this.pgClient.getPosts(order, limit, defaultOffset);
+  getPosts = async (
+    order: 'ASC' | 'DESC' = 'DESC',
+    limit= 20,
+    defaultOffset?: number,
+    extend: {follows?: string[]; blocks?: string[]} = {},
+    override: {follows?: string[]; blocks?: string[]} = {},
+  ): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (this.pgClient) return this.pgClient.getPosts(order, limit, defaultOffset, extend, override);
+
     const envelopes: DomainEnvelope<DomainPost>[] = [];
     const offset = defaultOffset || 0;
 

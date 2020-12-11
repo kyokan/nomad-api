@@ -525,7 +525,13 @@ export default class PostgresAdapter {
     );
   };
 
-  getPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+  getPosts = async (
+    order: 'ASC' | 'DESC' = 'DESC',
+    limit= 20,
+    defaultOffset?: number,
+    extend: {follows?: string[]; blocks?: string[]} = {},
+    override: {follows?: string[]; blocks?: string[]} = {},
+  ): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
     if (limit <= 0) {
       return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
     }
@@ -536,11 +542,36 @@ export default class PostgresAdapter {
       const envelopes: DomainEnvelope<DomainPost>[] = [];
       const offset = defaultOffset || 0;
 
+      const blocks = override.blocks
+        ? override.blocks
+        : extend.blocks?.length
+          ? extend.blocks.concat([])
+          : [];
+
+      let WHERE_STMT = '';
+      const SELECT_BLOCK = `
+            SELECT 1 FROM posts tp JOIN envelopes te ON e.id = te.id AND tp.envelope_id = te.id
+            LEFT JOIN connections block ON block.tld = te.tld AND block.connection_type = 'BLOCK'
+            INNER JOIN envelopes blockenv ON blockenv.id = block.envelope_id
+            AND blockenv.tld IN (${blocks.map(tld => `'${tld}'`).join(', ')})
+      `;
+
+      if (blocks.length) {
+        WHERE_STMT = `
+          WHERE NOT EXISTS (
+            ${SELECT_BLOCK}
+          )
+        `;
+      } else {
+        WHERE_STMT = 'WHERE true'
+      }
+
       const {rows} = await client.query(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
-        WHERE (p.reference is NULL AND (p.topic NOT LIKE '.%' OR p.topic is NULL))
+        ${WHERE_STMT}
+        AND (p.reference is NULL AND (p.topic NOT LIKE '.%' OR p.topic is NULL))
         ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
         LIMIT $1 OFFSET $2
     `, [
@@ -712,47 +743,64 @@ export default class PostgresAdapter {
       const originalRefhash = await this.getOriginalPosterHash(reference, client);
       const {tld: originalPosterTLD} = parseRefhash(originalRefhash);
       const moderationSetting = await this.getModerationSettingByRefhash(originalRefhash, client);
+
+      const opBlocks = moderationSetting === 'SETTINGS__NO_BLOCKS'
+        ? [originalPosterTLD]
+        : [];
+      const opFollows = moderationSetting === 'SETTINGS__FOLLOWS_ONLY'
+        ? [originalPosterTLD]
+        : [];
+
       const follows = override.follows
         ? override.follows
-        : extend.follows
-          ? extend.follows.concat(originalPosterTLD)
-          : moderationSetting === 'SETTINGS__FOLLOWS_ONLY'
-            ? [originalPosterTLD]
-            : [];
+        : extend.follows?.length
+          ? extend.follows.concat(opFollows)
+          : opFollows;
       const blocks = override.blocks
         ? override.blocks
-        : extend.blocks
-          ? extend.blocks.concat(originalPosterTLD)
-          : moderationSetting === 'SETTINGS__NO_BLOCKS'
-            ? [originalPosterTLD]
-            : [];
+        : extend.blocks?.length
+          ? extend.blocks.concat(opBlocks)
+          : opBlocks;
 
-      let JOIN_CONN = '';
-
-      if (follows.length) {
-        JOIN_CONN = `
-          LEFT JOIN connections follow ON follow.tld = e.tld AND follow.connection_type = 'FOLLOW'
-          LEFT JOIN envelopes followenv ON followenv.id = follow.envelope_id 
-          AND followenv.tld IN (${follows.map(f => `'${f}'`).join(',')})
-        `
-      }
-
-      if (blocks.length) {
-        JOIN_CONN = `
-          LEFT JOIN connections block ON block.tld = e.tld AND block.connection_type = 'BLOCK'
-          LEFT JOIN envelopes blockenv ON blockenv.id = block.envelope_id 
-          AND blockenv.tld IN (${blocks.map(f => `'${f}'`).join(',')})
-        `
-      }
-
-      let WHERE_STMT = `WHERE true`;
+      let WHERE_STMT = '';
+      const SELECT_FOLLOW = `
+            SELECT 1 FROM posts sp JOIN envelopes se ON e.id = se.id AND sp.envelope_id = se.id 
+            AND sp.reference = $3
+            LEFT JOIN connections follow ON follow.tld = se.tld AND follow.connection_type = 'FOLLOW'
+            INNER JOIN envelopes followenv ON followenv.id = follow.envelope_id
+            AND followenv.tld IN (${follows.map(tld => `'${tld}'`).join(', ')})
+      `;
+      const SELECT_BLOCK = `
+            SELECT 1 FROM posts tp JOIN envelopes te ON e.id = te.id AND tp.envelope_id = te.id 
+            AND tp.reference = $3
+            LEFT JOIN connections block ON block.tld = te.tld AND block.connection_type = 'BLOCK'
+            INNER JOIN envelopes blockenv ON blockenv.id = block.envelope_id
+            AND blockenv.tld IN (${blocks.map(tld => `'${tld}'`).join(', ')})
+      `;
 
       if (follows.length && blocks.length) {
-        WHERE_STMT = `WHERE e.tld = '${originalPosterTLD}' OR (followenv IS NOT NULL AND blockenv IS NULL)`;
+        WHERE_STMT = `
+          WHERE (e.tld = $4 OR EXISTS (
+            ${SELECT_FOLLOW}
+          ))
+          AND (e.tld = $4 OR NOT EXISTS (
+            ${SELECT_BLOCK}
+          ))
+        `;
       } else if (follows.length) {
-        WHERE_STMT = `WHERE e.tld = '${originalPosterTLD}' OR followenv IS NOT NULL`;
+        WHERE_STMT = `
+          WHERE (e.tld = $4 OR EXISTS (
+            ${SELECT_FOLLOW}
+          ))
+        `;
       } else if (blocks.length) {
-        WHERE_STMT = `WHERE e.tld = '${originalPosterTLD}' OR blockenv IS NULL`;
+        WHERE_STMT = `
+          WHERE (e.tld = $4 OR NOT EXISTS (
+            ${SELECT_BLOCK}
+          ))
+        `;
+      } else {
+        WHERE_STMT = 'WHERE true'
       }
 
       const envelopes: DomainEnvelope<DomainPost>[] = [];
@@ -762,7 +810,6 @@ export default class PostgresAdapter {
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
             p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id AND p.reference = $3
-        ${JOIN_CONN}
         ${WHERE_STMT}
         AND (p.topic NOT LIKE '.%' OR p.topic is NULL) 
         AND p.id ${order === 'DESC' ? '<' : '>'} $1
@@ -772,6 +819,7 @@ export default class PostgresAdapter {
         offset,
         limit,
         reference,
+        originalPosterTLD,
       ]);
 
       for (let i = 0; i < rows.length; i++) {
