@@ -3,6 +3,8 @@ import {Engine, Row} from './Engine';
 import {Envelope} from 'fn-client/lib/application/Envelope';
 import {Pageable} from './Pageable';
 import {BlobInfo} from "fn-client/lib/fnd/BlobInfo";
+import {PoolClient} from "pg";
+import {parseRefhash} from "fn-client/lib/wire/refhash";
 
 export type SQLOrder = 'ASC' | 'DESC';
 
@@ -74,6 +76,77 @@ export class PostsDAOImpl implements PostsDAO {
     }
 
     return new Pageable<Envelope<Post>, number>(envelopes, envelopes[envelopes.length - 1].message.id);
+  }
+
+
+  getParentHash = (reference: string | null): string | null =>  {
+    if (!reference) return null;
+
+    const rows: any[] = [];
+
+    this.engine.each(`
+        SELECT p.reference FROM posts p 
+        JOIN envelopes e ON p.envelope_id = e.id AND e.refhash = @reference
+        AND (p.topic NOT LIKE '.%' OR p.topic is NULL)
+    `, {
+      reference,
+    }, (row) => {
+      rows.push(row);
+    });
+
+    if (!rows.length) return null;
+
+    return rows[0].reference;
+  };
+
+  getOriginalPosterHash = (reference: string): string => {
+    const parent = this.getParentHash(reference);
+    if (!parent) return reference;
+    return this.getOriginalPosterHash(parent);
+  };
+
+  getModerationSettingByRefhash(refhash: string): 'SETTINGS__FOLLOWS_ONLY'|'SETTINGS__NO_BLOCKS'|null {
+    const { tld } = parseRefhash(refhash);
+
+    const rows: any[] = [];
+    this.engine.each(`
+      SELECT 
+        e.id as envelope_id,
+        e.tld, 
+        e.subdomain, 
+        e.network_id, 
+        e.refhash, 
+        e.created_at,  
+        e.type as message_type, 
+        e.subtype as message_subtype,
+        m.reference as reference,
+        m.moderation_type as moderation_type
+      FROM moderations m
+      JOIN envelopes e ON m.envelope_id = e.id AND m.moderation_type IN ('SETTINGS__FOLLOWS_ONLY', 'SETTINGS__NO_BLOCKS')
+      WHERE m.reference = @refhash AND e.tld = @tld
+      ORDER BY e.created_at DESC
+    `, {
+      refhash,
+      tld,
+    }, (row) => {
+      rows.push(row);
+    });
+
+    if (!rows.length) {
+      return null;
+    }
+
+    const {moderation_type} = rows[0];
+
+    if (moderation_type === 'SETTINGS__FOLLOWS_ONLY') {
+      return 'SETTINGS__FOLLOWS_ONLY';
+    }
+
+    if (moderation_type === 'SETTINGS__NO_BLOCKS') {
+      return 'SETTINGS__NO_BLOCKS';
+    }
+
+    return null;
   }
 
   public getRecords = async (limit = 20, offset = 0): Promise<Pageable<BlobInfo[], number>> => {
@@ -214,6 +287,11 @@ export class PostsDAOImpl implements PostsDAO {
 
   private mapPost (row: Row, includeTags: boolean): Envelope<Post> {
     const tags: string[] = [];
+
+    const originalRefhash = this.getOriginalPosterHash(row.refhash);
+    const moderationType = this.getModerationSettingByRefhash(originalRefhash);
+
+
     if (includeTags) {
       this.engine.each(`
           SELECT name as tag 
@@ -251,6 +329,7 @@ export class PostsDAOImpl implements PostsDAO {
         row.reply_count,
         row.like_count,
         row.pin_count,
+        moderationType,
         subtype,
       ),
       null

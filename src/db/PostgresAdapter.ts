@@ -761,8 +761,8 @@ export default class PostgresAdapter {
     order?: 'ASC' | 'DESC',
     limit = 20,
     defaultOffset?: number,
-    extend: {follows?: string[]; blocks?: string[]} = {},
-    override: {follows?: string[]; blocks?: string[]} = {},
+    extend: {follows?: string[]|null; blocks?: string[]|null} = {},
+    override: {follows?: string[]|null; blocks?: string[]|null} = {},
   ): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
     if (limit <= 0 || !reference) {
       return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
