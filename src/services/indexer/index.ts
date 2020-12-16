@@ -1529,6 +1529,7 @@ export class IndexerManager {
   private async copyDB () {
     const nomadSrc = path.join(this.resourcePath, 'nomad.db');
     await fs.promises.copyFile(nomadSrc, this.dbPath);
+    await fs.promises.chmod(this.dbPath, 0o755);
   }
 
   async streamAllBlobs(start = '', defaultTimeout?: number): Promise<void> {
