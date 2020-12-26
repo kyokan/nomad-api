@@ -47,6 +47,10 @@ import {SubdomainDBRow} from "../subdomains";
 import PostgresAdapter from "../../db/PostgresAdapter";
 import HSDService from "../hsd";
 import {BlobInfo} from "fn-client/lib/fnd/BlobInfo";
+import {Torrent} from 'webtorrent';
+import webtorrent, {seed} from "../../util/webtorrent";
+import multer from 'multer';
+const upload = multer();
 
 const SPRITE_TO_SPRITES: {[sprite: string]: any} = {
   identicon: Identicon,
@@ -99,17 +103,6 @@ export class IndexerManager {
   }
 
   handlers = {
-    '/channel-posts': async (req: Request, res: Response) => {
-      trackAttempt('Get All Channel Posts', req);
-      try {
-        const { order, offset, limit } = req.query || {};
-        const posts = await this.getChannelPosts(order, limit, offset);
-        res.send(makeResponse(posts));
-      } catch (e) {
-        res.status(500).send(makeResponse(e.message, true));
-      }
-    },
-
     '/posts': async (req: Request, res: Response) => {
       trackAttempt('Get All Posts', req);
       try {
@@ -306,26 +299,38 @@ export class IndexerManager {
       }
     },
 
-    '/media/:refhash': async (req: Request, res: Response) => {
+    '/torrent/:infohash': async (req: Request, res: Response) => {
       try {
-        const { refhash } = req.params;
+        const { infohash } = req.params;
+        const h = infohash.split('.torrent')[0];
+        const file = await this.getFile(h);
 
-        if (IMAGE_CACHE[refhash]) {
-          // res.set('Content-Disposition', `attachment; filename=${encodeURI(IMAGE_CACHE[refhash].filename)}`);
-          res.set({'Content-Type': IMAGE_CACHE[refhash].type});
-          res.send(IMAGE_CACHE[refhash].data);
-          return;
-        }
-
-        const media = await this.getMediaByHash(refhash);
-
-        if (!media) {
+        if (!file) {
           return res.status(404).send();
         }
 
         // res.set('Content-Disposition', `attachment; filename=${encodeURI(media.filename)}`);
-        res.set({'Content-Type': media.mime_type});
-        res.send(media.content);
+        res.set({'Content-Type': 'application/x-bittorrent' });
+        res.send(file.torrent);
+      } catch (e) {
+        res.status(500);
+        res.send(e.message);
+      }
+    },
+
+    '/ws/:infohash': async (req: Request, res: Response) => {
+      try {
+        const { infohash } = req.params;
+
+        const file = await this.getFile(infohash);
+
+        if (!file) {
+          return res.status(404).send();
+        }
+
+        // res.set('Content-Disposition', `attachment; filename=${encodeURI(media.filename)}`);
+        res.set({'Content-Type': file.mimeType});
+        res.send(file.buffer);
       } catch (e) {
         res.status(500);
         res.send(e.message);
@@ -355,6 +360,25 @@ export class IndexerManager {
         res.send(e.message);
       }
     },
+
+    '/upload': async (req: Request, res: Response) => {
+      try {
+        trackAttempt('Upload File', req);
+        const filename = req.file.originalname;
+        const mimeType = req.file.mimetype;
+        const buf = req.file.buffer;
+        // @ts-ignore
+        buf.name = filename;
+        const torrent = await seed(req.file.buffer);
+        await this.insertFile(filename, mimeType, buf, torrent.infoHash, torrent.torrentFile);
+        res.send({
+          payload: torrent.magnetURI,
+        });
+      } catch (e) {
+        res.status(500);
+        res.send(e.message);
+      }
+    }
   };
 
   setRoutes = (app: Express) => {
@@ -376,7 +400,9 @@ export class IndexerManager {
     // app.get('/users/:username/channels', this.handlers['/users/:username/channels']);
     // app.get('/channels', this.handlers['/channels']);
     app.get('/avatars/:sprite/:seed.svg', this.handlers['/avatars/:sprite/:seed.svg']);
-    app.get('/media/:refhash', this.handlers['/media/:refhash']);
+    app.get('/ws/:infohash', this.handlers['/ws/:infohash']);
+    app.get('/torrent/:infohash', this.handlers['/torrent/:infohash']);
+    app.post('/upload', upload.single('file'), this.handlers['/upload']);
     app.get('/trending/tags', this.handlers['/trending/tags']);
     app.get('/trending/users', this.handlers['/trending/users']);
 
@@ -1218,6 +1244,25 @@ export class IndexerManager {
       logger.error(`cannot insert message ${serializeUsername(subdomain?.name, tld)}}`);
       logger.error(err?.message);
     }
+  };
+
+  insertFile = async (filename: string, mimeType: string, fileBuf: Buffer, infoHash: string, torrent: Buffer) => {
+    if (this.pgClient) {
+      return this.pgClient.insertFile(filename, mimeType, fileBuf, infoHash, torrent);
+    }
+  };
+
+  getFile = async (infoHash: string): Promise<{
+    buffer: Buffer;
+    filename: string;
+    mimeType: string;
+    infoHash: string;
+    torrent: Buffer;
+  } | null> => {
+    if (this.pgClient) {
+      return this.pgClient.getFile(infoHash);
+    }
+    return null;
   };
 
   scanCommentCounts = async (): Promise<{[parent: string]: number}> => {

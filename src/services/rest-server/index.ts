@@ -5,7 +5,6 @@ import logger from "../../util/logger";
 import fs from "fs";
 import HSDService from "../hsd";
 const requestIp = require('request-ip');
-const fileUpload = require('express-fileupload');
 import {getLinkPreview} from 'link-preview-js';
 const port = process.env.PORT || 8082;
 
@@ -34,7 +33,6 @@ export class RestServer {
     this.app = express();
     this.app.use(cors(corsOptions));
     this.app.use(requestIp.mw());
-    this.app.use(fileUpload());
     this.app.use('/', express.static('./build-doc'));
     this.app.use('/docs', express.static('./build-doc'));
     this.app.use(async (req, res, next) => {
@@ -85,6 +83,8 @@ export class RestServer {
     this.app.get('/health', (req, res) => {
       res.send(makeResponse('ok'));
     });
+
+
   }
 
   start() {

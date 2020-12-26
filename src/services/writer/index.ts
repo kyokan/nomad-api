@@ -184,7 +184,7 @@ export class Writer {
       } catch (e) {
         return res.status(500).send(makeResponse(e.message, true));
       }
-    }
+    },
   };
 
   async reconstructBlob(tld: string, date?: Date, broadcast?: boolean, source?: 'sqlite' | 'postgres'): Promise<void> {

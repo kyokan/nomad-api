@@ -16,6 +16,7 @@ import {BlobInfo} from "fn-client/lib/fnd/BlobInfo";
 import {getConfig} from "../util/config";
 import {SELECT_POSTS} from "../util/db";
 import {parseRefhash} from "fn-client/lib/wire/refhash";
+import {info} from "winston";
 
 export type PostgresAdapterOpts = {
   user: string;
@@ -97,6 +98,66 @@ export default class PostgresAdapter {
     } catch (e) {
       await client.query('ROLLBACK');
       throw e
+    }
+  }
+
+  async getFile(infoHash: string): Promise<{
+    buffer: Buffer;
+    filename: string;
+    mimeType: string;
+    infoHash: string;
+    torrent: Buffer;
+  } | null> {
+    const {rows} = await this.pool.query(`
+      SELECT * FROM files
+      WHERE info_hash = $1
+    `, [infoHash]);
+
+    if (!rows.length) {
+      return null;
+    }
+
+    return {
+      buffer: rows[0].content,
+      filename: rows[0].filename,
+      mimeType: rows[0].mime_type,
+      infoHash: rows[0].info_hash,
+      torrent: rows[0].torrent,
+    }
+  }
+
+  async insertFile(filename: string, mimeType: string, fileBuf: Buffer, infoHash: string, torrent: Buffer): Promise<void> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query('BEGIN');
+      const {rows: [{exists}]} = await client.query(
+        'SELECT EXISTS(SELECT 1 FROM files WHERE info_hash = $1)',
+        [infoHash]
+      );
+
+      if (!exists) {
+        const sql = `
+          INSERT INTO files (filename, mime_type, content, info_hash, torrent)
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING id
+        `;
+        await client.query(sql, [
+          filename,
+          mimeType,
+          fileBuf,
+          infoHash,
+          torrent,
+        ]);
+      }
+
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      logger.verbose('released pg client', { infoHash });
+      client.release();
     }
   }
 
