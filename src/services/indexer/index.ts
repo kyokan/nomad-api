@@ -48,9 +48,10 @@ import PostgresAdapter from "../../db/PostgresAdapter";
 import HSDService from "../hsd";
 import {BlobInfo} from "fn-client/lib/fnd/BlobInfo";
 import {Torrent} from 'webtorrent';
-import webtorrent, {seed} from "../../util/webtorrent";
+import {seed} from "../../util/webtorrent";
 import multer from 'multer';
 const upload = multer();
+import parseTorrent from 'parse-torrent';
 
 const SPRITE_TO_SPRITES: {[sprite: string]: any} = {
   identicon: Identicon,
@@ -369,10 +370,13 @@ export class IndexerManager {
         const buf = req.file.buffer;
         // @ts-ignore
         buf.name = filename;
-        const torrent = await seed(req.file.buffer);
-        await this.insertFile(filename, mimeType, buf, torrent.infoHash, torrent.torrentFile);
+        const torrent: any = await seed(buf);
+        const magnetUri = parseTorrent.toMagnetURI(torrent as any);
+        const torrentFile = parseTorrent.toTorrentFile(torrent);
+        console.log(torrent)
+        await this.insertFile(filename, mimeType, buf, torrent.infoHash, torrentFile);
         res.send({
-          payload: torrent.magnetURI,
+          payload: magnetUri,
         });
       } catch (e) {
         res.status(500);

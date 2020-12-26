@@ -1,17 +1,17 @@
 import {Torrent} from "webtorrent";
 
 const WebTorrent = require('webtorrent-hybrid');
+import createTorrent from 'create-torrent';
+import parseTorrent from 'parse-torrent';
+import {Readable} from "stream";
 const webtorrent = new WebTorrent();
 
-export const seed = (buffer: Buffer): Promise<Torrent> => {
+export const seed = (buffer: Buffer) => {
   return new Promise((resolve, reject) => {
     try {
-      webtorrent.seed(buffer, (torrent: Torrent) => {
-        resolve(torrent);
-
-        setTimeout(() => {
-          webtorrent.remove(torrent.infoHash);
-        }, 0);
+      createTorrent(buffer, (err, torrent) => {
+        const torrentData = parseTorrent(torrent);
+        resolve(torrentData);
       });
     } catch (e) {
       reject(e);
@@ -20,3 +20,14 @@ export const seed = (buffer: Buffer): Promise<Torrent> => {
 };
 
 export default webtorrent;
+
+function bufferToStream(binary: Buffer) {
+  const readableInstanceStream = new Readable({
+    read() {
+      this.push(binary);
+      this.push(null);
+    }
+  });
+
+  return readableInstanceStream;
+}
