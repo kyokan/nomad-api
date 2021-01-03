@@ -1,6 +1,6 @@
 {
   "name": "nomad-api",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -89,7 +89,7 @@
     "elliptic": "^6.5.2",
     "end-of-stream": "^1.4.1",
     "express": "^4.17.1",
-    "fn-client": "^0.6.1",
+    "fn-client": "^0.6.4",
     "ipfs": "^0.46.0",
     "isomorphic-fetch": "^2.2.1",
     "link-preview-js": "^2.0.5",

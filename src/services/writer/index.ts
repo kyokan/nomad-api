@@ -97,6 +97,7 @@ export class Writer {
         const rh = await createRefhash(envelope, '', tld);
         const rhHex = rh.toString('hex');
 
+
         if (!envelope) {
           return res.status(400)
             .send(makeResponse('invalid envelope', true));

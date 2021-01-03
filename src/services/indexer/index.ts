@@ -52,6 +52,7 @@ import {seed} from "../../util/webtorrent";
 import multer from 'multer';
 const upload = multer();
 import parseTorrent from 'parse-torrent';
+import {Readable} from "stream";
 
 const SPRITE_TO_SPRITES: {[sprite: string]: any} = {
   identicon: Identicon,
@@ -65,9 +66,11 @@ const CONFIRMATION_HEIGHT = 8;
 
 const IMAGE_CACHE: {
   [hash: string]: {
-    type: string;
+    buffer: Buffer;
     filename: string;
-    data: Buffer;
+    mimeType: string;
+    infoHash: string;
+    torrent: Buffer;
   };
 } = {};
 
@@ -104,6 +107,36 @@ export class IndexerManager {
   }
 
   handlers = {
+    '/videos': async (req: Request, res: Response) => {
+      trackAttempt('Get All Videos', req);
+      try {
+        const {
+          extendBlockSrc,
+          extendFollowSrc,
+          overrideBlockSrc,
+          overrideFollowSrc,
+        } = decodeQueryParams(req.query as any);
+        const { order, offset, limit, topic } = req.query as any || {};
+        const posts = await this.getVideoPosts(
+          order,
+          limit,
+          offset,
+          {
+            blocks: extendBlockSrc,
+            follows: extendFollowSrc,
+          },
+          {
+            blocks: overrideBlockSrc,
+            follows: overrideFollowSrc,
+          },
+          topic,
+        );
+        res.send(makeResponse(posts));
+      } catch (e) {
+        res.status(500).send(makeResponse(e.message, true));
+      }
+    },
+
     '/posts': async (req: Request, res: Response) => {
       trackAttempt('Get All Posts', req);
       try {
@@ -112,8 +145,8 @@ export class IndexerManager {
           extendFollowSrc,
           overrideBlockSrc,
           overrideFollowSrc,
-        } = decodeQueryParams(req.query);
-        const { order, offset, limit } = req.query || {};
+        } = decodeQueryParams(req.query as any);
+        const { order, offset, limit, topic, name } = req.query as any || {};
         const posts = await this.getPosts(
           order,
           limit,
@@ -126,6 +159,8 @@ export class IndexerManager {
             blocks: overrideBlockSrc,
             follows: overrideFollowSrc,
           },
+          topic,
+          name,
         );
         res.send(makeResponse(posts));
       } catch (e) {
@@ -150,8 +185,8 @@ export class IndexerManager {
         extendFollowSrc,
         overrideBlockSrc,
         overrideFollowSrc,
-      } = decodeQueryParams(req.query);
-      const { order, offset, limit } = req.query || {};
+      } = decodeQueryParams(req.query as any);
+      const { order, offset, limit } = req.query as any || {};
       const post = await this.getCommentsByHash(
         req.params.hash,
         order,
@@ -171,7 +206,7 @@ export class IndexerManager {
     //
     '/filter': async (req: Request, res: Response) =>  {
       trackAttempt('Get Posts by Filter', req);
-      const { order, limit, offset } = req.query || {};
+      const { order, limit, offset } = req.query as any || {};
       const { filter } = req.body;
       const post = await this.getPostsByFilter(filter, order, limit, offset);
       res.send(makeResponse(post));
@@ -179,14 +214,14 @@ export class IndexerManager {
 
     '/tlds': async (req: Request, res: Response) => {
       trackAttempt('Get All TLDs', req);
-      const { limit, offset } = req.query || {};
+      const { limit, offset } = req.query as any || {};
       const resp = await this.getRecords(limit, offset);
       res.send(makeResponse(resp));
     },
 
     '/tags': async (req: Request, res: Response) => {
       trackAttempt('Get Posts by Tags', req);
-      const { order, limit, offset, tags } = req.query || {};
+      const { order, limit, offset, tags } = req.query as any || {};
       const posts = await this.getPostsByFilter(extendFilter({
         postedBy: ['*'],
         allowedTags: Array.isArray(tags) ? tags : [tags],
@@ -196,7 +231,7 @@ export class IndexerManager {
 
     '/users/:username/timeline': async (req: Request, res: Response) => {
       trackAttempt('Get Timeline by User', req, req.params.username);
-      const { order, limit, offset } = req.query || {};
+      const { order, limit, offset } = req.query as any || {};
       const {tld, subdomain} = parseUsername(req.params.username);
 
       const posts = await this.getPostsByFilter(extendFilter({
@@ -206,9 +241,71 @@ export class IndexerManager {
       res.send(makeResponse(posts));
     },
 
+    '/users/:username/posts': async (req: Request, res: Response) => {
+      trackAttempt('Get Posts by User', req, req.params.username);
+      try {
+        const {
+          extendBlockSrc,
+          extendFollowSrc,
+          overrideBlockSrc,
+          overrideFollowSrc,
+        } = decodeQueryParams(req.query as any);
+        const { order, offset, limit, topic } = req.query as any || {};
+        const posts = await this.getRegularPosts(
+          order,
+          limit,
+          offset,
+          {
+            blocks: extendBlockSrc,
+            follows: extendFollowSrc,
+          },
+          {
+            blocks: overrideBlockSrc,
+            follows: overrideFollowSrc,
+          },
+          topic,
+          req.params.username,
+        );
+        res.send(makeResponse(posts));
+      } catch (e) {
+        res.status(500).send(makeResponse(e.message, true));
+      }
+    },
+
+    '/users/:username/videos': async (req: Request, res: Response) => {
+      trackAttempt('Get Videos by User', req, req.params.username);
+      try {
+        const {
+          extendBlockSrc,
+          extendFollowSrc,
+          overrideBlockSrc,
+          overrideFollowSrc,
+        } = decodeQueryParams(req.query as any);
+        const { order, offset, limit, topic } = req.query as any || {};
+        const posts = await this.getVideoPosts(
+          order,
+          limit,
+          offset,
+          {
+            blocks: extendBlockSrc,
+            follows: extendFollowSrc,
+          },
+          {
+            blocks: overrideBlockSrc,
+            follows: overrideFollowSrc,
+          },
+          topic,
+          req.params.username,
+        );
+        res.send(makeResponse(posts));
+      } catch (e) {
+        res.status(500).send(makeResponse(e.message, true));
+      }
+    },
+
     '/users/:username/likes': async (req: Request, res: Response) => {
       trackAttempt('Get Likes by User', req, req.params.username);
-      const { order, limit, offset } = req.query || {};
+      const { order, limit, offset } = req.query as any || {};
       const {tld, subdomain} = parseUsername(req.params.username);
       const posts = await this.getPostsByFilter(extendFilter({
         likedBy: [serializeUsername(subdomain, tld)],
@@ -218,7 +315,7 @@ export class IndexerManager {
 
     '/users/:username/comments': async (req: Request, res: Response) => {
       trackAttempt('Get Comments by User', req, req.params.username);
-      const { order, limit, offset } = req.query || {};
+      const { order, limit, offset } = req.query as any || {};
       const {tld, subdomain} = parseUsername(req.params.username);
       const posts = await this.getPostsByFilter(extendFilter({
         repliedBy: [serializeUsername(subdomain, tld)],
@@ -228,21 +325,21 @@ export class IndexerManager {
 
     '/users/:username/followees': async (req: Request, res: Response) => {
       trackAttempt('Get Followees by User', req, req.params.username);
-      const { order, limit, offset } = req.query || {};
+      const { order, limit, offset } = req.query as any || {};
       const posts = await this.getUserFollowings(req.params.username, order, limit, offset);
       res.send(makeResponse(posts));
     },
 
     '/users/:username/followers': async (req: Request, res: Response) => {
       trackAttempt('Get Followers by User', req, req.params.username);
-      const { order, limit, offset } = req.query || {};
+      const { order, limit, offset } = req.query as any || {};
       const posts = await this.getUserFollowers(req.params.username, order, limit, offset);
       res.send(makeResponse(posts));
     },
 
     '/users/:username/blockees': async (req: Request, res: Response) => {
       trackAttempt('Get Blockees by User', req, req.params.username);
-      const { order, limit, offset } = req.query || {};
+      const { order, limit, offset } = req.query as any || {};
       const posts = await this.getUserBlocks(req.params.username, order, limit, offset);
       res.send(makeResponse(posts));
     },
@@ -262,14 +359,14 @@ export class IndexerManager {
 
     '/users/:username/channels': async (req: Request, res: Response) => {
       trackAttempt('Get User Channels', req, req.params.username);
-      const { order, limit, offset } = req.query || {};
+      const { order, limit, offset } = req.query as any || {};
       const posts = await this.getUserChannels(req.params.username, order, limit, offset);
       res.send(makeResponse(posts));
     },
 
     '/channels': async (req: Request, res: Response) => {
       trackAttempt('Get Channels', req);
-      const { order, limit, offset } = req.query || {};
+      const { order, limit, offset } = req.query as any || {};
       const posts = await this.getChannels(order, limit, offset);
       res.send(makeResponse(posts));
     },
@@ -329,9 +426,19 @@ export class IndexerManager {
           return res.status(404).send();
         }
 
+        // @ts-ignore
+        const [range] = req.range(file.buffer.length);
+        const end = range.end || file.buffer.length;
+        const start = range.start;
+        const contentLength = end - start + 1;
+        res.status(206);
+        res.set('Content-Range', 'bytes ' + start + '-' + end + '/' + file.buffer.length);
         // res.set('Content-Disposition', `attachment; filename=${encodeURI(media.filename)}`);
-        res.set({'Content-Type': file.mimeType});
-        res.send(file.buffer);
+        res.set({ 'Content-Type': file.mimeType });
+        res.set({ 'Accept-Range': 'bytes' });
+        res.set({ "Content-Length": contentLength });
+
+        res.send(file.buffer.slice(start, end + 1));
       } catch (e) {
         res.status(500);
         res.send(e.message);
@@ -341,7 +448,7 @@ export class IndexerManager {
     '/trending/tags': async (req: Request, res: Response) => {
       try {
         trackAttempt('Get Trending Tags', req);
-        const { limit, offset } = req.query || {};
+        const { limit, offset } = req.query as any || {};
         const tags = await this.queryTrendingTags(limit, offset);
         res.send(makeResponse(tags));
       } catch (e) {
@@ -353,7 +460,7 @@ export class IndexerManager {
     '/trending/users': async (req: Request, res: Response) => {
       try {
         trackAttempt('Get Trending Posters', req);
-        const { limit, offset } = req.query || {};
+        const { limit, offset } = req.query as any || {};
         const tags = await this.queryTrendingPosters(limit, offset);
         res.send(makeResponse(tags));
       } catch (e) {
@@ -373,7 +480,6 @@ export class IndexerManager {
         const torrent: any = await seed(buf);
         const magnetUri = parseTorrent.toMagnetURI(torrent as any);
         const torrentFile = parseTorrent.toTorrentFile(torrent);
-        console.log(torrent)
         await this.insertFile(filename, mimeType, buf, torrent.infoHash, torrentFile);
         res.send({
           payload: magnetUri,
@@ -386,7 +492,7 @@ export class IndexerManager {
   };
 
   setRoutes = (app: Express) => {
-    // app.get('/channel-posts', this.handlers['/channel-posts']);
+    app.get('/videos', this.handlers['/videos']);
     app.get('/posts', this.handlers['/posts']);
     app.get('/posts/:hash', this.handlers['/posts/:hash']);
     app.get('/posts/:hash/comments', this.handlers['/posts/:hash/comments']);
@@ -394,22 +500,20 @@ export class IndexerManager {
     app.get('/tlds', this.handlers['/tlds']);
     app.get('/tags', this.handlers['/tags']);
     app.get('/users/:username/timeline', this.handlers['/users/:username/timeline']);
+    app.get('/users/:username/posts', this.handlers['/users/:username/posts']);
+    app.get('/users/:username/videos', this.handlers['/users/:username/videos']);
     app.get('/users/:username/likes', this.handlers['/users/:username/likes']);
     app.get('/users/:username/comments', this.handlers['/users/:username/comments']);
     app.get('/users/:username/followees', this.handlers['/users/:username/followees']);
     app.get('/users/:username/followers', this.handlers['/users/:username/followers']);
     app.get('/users/:username/blockees', this.handlers['/users/:username/blockees']);
-    // app.get('/users/:username/uploads', this.handlers['/users/:username/uploads']);
     app.get('/users/:username/profile', this.handlers['/users/:username/profile']);
-    // app.get('/users/:username/channels', this.handlers['/users/:username/channels']);
-    // app.get('/channels', this.handlers['/channels']);
     app.get('/avatars/:sprite/:seed.svg', this.handlers['/avatars/:sprite/:seed.svg']);
     app.get('/ws/:infohash', this.handlers['/ws/:infohash']);
     app.get('/torrent/:infohash', this.handlers['/torrent/:infohash']);
     app.post('/upload', upload.single('file'), this.handlers['/upload']);
     app.get('/trending/tags', this.handlers['/trending/tags']);
     app.get('/trending/users', this.handlers['/trending/users']);
-
     // app.get('/ipfs/:ipfsHash', async (req: Request, res: Response) => {
     //   try {
     //     const { ipfsHash } = req.params;
@@ -601,7 +705,6 @@ export class IndexerManager {
     }, (row) => {
       envelopes.push(this.mapPost(row, true));
     });
-
 
     if (!envelopes.length) {
       return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
@@ -914,16 +1017,26 @@ export class IndexerManager {
     };
   };
 
-  getChannelPosts = async (order: 'ASC' | 'DESC' = 'DESC', limit= 20, defaultOffset?: number): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
-    if (this.pgClient) return this.pgClient.getChannelPosts(order, limit, defaultOffset);
+  getVideoPosts = async (
+    order: 'ASC' | 'DESC' = 'DESC',
+    limit= 20,
+    defaultOffset?: number,
+    extend: {follows?: string[]|null; blocks?: string[]|null} = {},
+    override: {follows?: string[]|null; blocks?: string[]|null} = {},
+    topic?: string,
+    tld?: string,
+  ): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (this.pgClient) return this.pgClient.getVideoPosts(order, limit, defaultOffset, extend, override, topic, tld);
+
     const envelopes: DomainEnvelope<DomainPost>[] = [];
     const offset = defaultOffset || 0;
 
     this.engine.each(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype,
+            p.video_url, p.thumbnail_url
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
-        WHERE (p.reference is NULL AND p.topic = 'channelpost')
+        WHERE (p.reference is NULL AND e.subtype = 'VID' AND (p.topic NOT LIKE ".%" OR p.topic is NULL))
         ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
         LIMIT @limit OFFSET @start
     `, {
@@ -943,14 +1056,55 @@ export class IndexerManager {
     );
   };
 
+  getRegularPosts = async (
+    order: 'ASC' | 'DESC' = 'DESC',
+    limit= 20,
+    defaultOffset?: number,
+    extend: {follows?: string[]|null; blocks?: string[]|null} = {},
+    override: {follows?: string[]|null; blocks?: string[]|null} = {},
+    topic?: string,
+    tld?: string,
+  ): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (this.pgClient) return this.pgClient.getRegularPosts(order, limit, defaultOffset, extend, override, topic, tld);
+
+    const envelopes: DomainEnvelope<DomainPost>[] = [];
+    const offset = defaultOffset || 0;
+
+    this.engine.each(`
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
+        FROM posts p JOIN envelopes e ON p.envelope_id = e.id AND e.subtype != 'VID'
+        WHERE (p.reference is NULL AND (p.topic NOT LIKE ".%" OR p.topic is NULL))
+        ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
+        LIMIT @limit OFFSET @start
+    `, {
+      start: offset,
+      limit,
+    }, (row) => {
+      envelopes.push(this.mapPost(row, true));
+    });
+
+
+    if (!envelopes.length) {
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+
+    return new Pageable<DomainEnvelope<DomainPost>, number>(
+      envelopes,
+      envelopes.length + Number(offset),
+    );
+  };
+
   getPosts = async (
     order: 'ASC' | 'DESC' = 'DESC',
     limit= 20,
     defaultOffset?: number,
     extend: {follows?: string[]|null; blocks?: string[]|null} = {},
     override: {follows?: string[]|null; blocks?: string[]|null} = {},
+    topic?: string,
+    tld?: string,
   ): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
-    if (this.pgClient) return this.pgClient.getPosts(order, limit, defaultOffset, extend, override);
+    if (this.pgClient) return this.pgClient.getPosts(order, limit, defaultOffset, extend, override, topic, tld);
 
     const envelopes: DomainEnvelope<DomainPost>[] = [];
     const offset = defaultOffset || 0;
@@ -1166,6 +1320,8 @@ export class IndexerManager {
 
     if (row.message_subtype === 'L') {
       subtype = 'LINK';
+    } else if (row.message_subtype === 'VID') {
+      subtype = 'VIDEO';
     }
 
     return new DomainEnvelope<DomainPost>(
@@ -1187,6 +1343,8 @@ export class IndexerManager {
         row.pin_count,
         null,
         subtype,
+        row.video_url,
+        row.thumbnail_url
       ),
       null
     );
@@ -1263,8 +1421,13 @@ export class IndexerManager {
     infoHash: string;
     torrent: Buffer;
   } | null> => {
+    if (IMAGE_CACHE[infoHash]) {
+      return IMAGE_CACHE[infoHash];
+    }
     if (this.pgClient) {
-      return this.pgClient.getFile(infoHash);
+      const res = this.pgClient.getFile(infoHash);
+      IMAGE_CACHE[infoHash] = res as any;
+      return res;
     }
     return null;
   };
@@ -1629,4 +1792,15 @@ export class IndexerManager {
       timeout = setTimeout(resolve, 500);
     })
   };
+}
+
+function bufferToStream(binary: Buffer) {
+  const readableInstanceStream = new Readable({
+    read() {
+      this.push(binary);
+      this.push(null);
+    }
+  });
+
+  return readableInstanceStream;
 }

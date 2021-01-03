@@ -310,6 +310,8 @@ export class PostsDAOImpl implements PostsDAO {
 
     if (row.message_subtype === 'L') {
       subtype = 'LINK';
+    } else if (row.message_subtype === 'VID') {
+      subtype = 'VIDEO';
     }
 
     return new Envelope<Post>(

@@ -1,5 +1,3 @@
-import {Torrent} from "webtorrent";
-
 const WebTorrent = require('webtorrent-hybrid');
 import createTorrent from 'create-torrent';
 import parseTorrent from 'parse-torrent';

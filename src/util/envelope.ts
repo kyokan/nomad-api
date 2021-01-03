@@ -5,7 +5,7 @@ import {Connection as WireConnection} from "fn-client/lib/wire/Connection";
 import {Moderation as WireModeration} from "fn-client/lib/wire/Moderation";
 import {createRefhash} from "fn-client/lib/wire/refhash";
 import {Envelope as DomainEnvelope} from 'fn-client/lib/application/Envelope';
-import {Post as DomainPost} from 'fn-client/lib/application/Post';
+import {Post as DomainPost, PostType} from 'fn-client/lib/application/Post';
 import {
   Connection as DomainConnection,
   ConnectionType as DomainConnectionType,
@@ -38,6 +38,7 @@ export const mapWireToEnvelope = async (
 
   switch (msgType) {
     case WirePost.TYPE.toString('utf-8'):
+
       return new DomainEnvelope(
         0,
         tld,
@@ -77,33 +78,39 @@ export const mapWireToEnvelope = async (
 
 function mapWirePostToDomainPost(wirePost: WirePost): DomainPost {
   let reference = null;
-  let title = null;
+  let topic = null;
 
   if (wirePost.reference) {
     if (wirePost.refType === RefType.REPLY) {
       reference = wirePost.reference.toString('hex');
     } else if (wirePost.refType === RefType.TOPIC) {
-      title = wirePost.reference.toString('utf-8');
+      topic = wirePost.reference.toString('utf-8');
     }
   }
 
-  const wireSubtype = wirePost.subtype.toString('utf-8');
+  let subtype: PostType = '';
+
+  if (WirePost.LINK_SUBTYPE.equals(wirePost.subtype)) {
+    subtype = 'LINK';
+  } else if (WirePost.VIDEO_SUBTYPE.equals(wirePost.subtype)) {
+    subtype = 'VIDEO';
+  }
+
 
   return new DomainPost(
     0,
     wirePost.body,
     wirePost.title,
     reference,
-    title,
+    topic,
     [],
     0,
     0,
     0,
     undefined,
-    wireSubtype === WirePost.LINK_SUBTYPE.toString('utf-8')
-      ? 'LINK'
-      : '',
-
+    subtype,
+    wirePost.videoUrl,
+    wirePost.thumbnailUrl,
   );
 }
 
@@ -175,6 +182,8 @@ export async function mapBodyToEnvelope(tld: string, params: WriterEnvelopeParam
         0,
         undefined,
         post.subtype,
+        post.videoUrl,
+        post.thumbnailUrl,
       )
     );
   }
@@ -246,7 +255,9 @@ export async function createEnvelope(tld: string, params: WriterEnvelopeParams):
         0,
         0,
         undefined,
-        post.subtype
+        post.subtype,
+        post.videoUrl,
+        post.thumbnailUrl,
       ),
       null,
     );

@@ -5,7 +5,7 @@ import {
   Connection as DomainConnection,
   Follow as DomainFollow,
 } from 'fn-client/lib/application/Connection';
-import {Moderation as DomainModeration, ModerationType} from 'fn-client/lib/application/Moderation';
+import {Moderation as DomainModeration} from 'fn-client/lib/application/Moderation';
 import {Pageable} from '../services/indexer/Pageable';
 import logger from "../util/logger";
 import {extendFilter, Filter} from "../util/filter";
@@ -16,7 +16,6 @@ import {BlobInfo} from "fn-client/lib/fnd/BlobInfo";
 import {getConfig} from "../util/config";
 import {SELECT_POSTS} from "../util/db";
 import {parseRefhash} from "fn-client/lib/wire/refhash";
-import {info} from "winston";
 
 export type PostgresAdapterOpts = {
   user: string;
@@ -82,6 +81,7 @@ export default class PostgresAdapter {
       const type = wireEnv.message.type.toString('utf-8');
       const subtype = wireEnv.message.subtype.toString('utf-8')
         .replace(/[\x00-\x1F\x7F-\x9F]/g, "");
+
       const {
         rows: [{id: envId}]
       } = await client.query(sql, [
@@ -265,8 +265,8 @@ export default class PostgresAdapter {
         const {
           rows: [{id: postId}]
         } = await client.query(`
-          INSERT INTO posts (envelope_id, body, title, reference, topic, reply_count, like_count, pin_count)
-          VALUES ($1, $2, $3, $4, $5, 0, 0, 0)
+          INSERT INTO posts (envelope_id, body, title, reference, topic, reply_count, like_count, pin_count, video_url, thumbnail_url)
+          VALUES ($1, $2, $3, $4, $5, 0, 0, 0, $6, $7)
           RETURNING id
         `, [
           envelopeId,
@@ -274,6 +274,8 @@ export default class PostgresAdapter {
           env.message.title,
           env.message.reference,
           env.message.topic,
+          env.message.videoUrl || null,
+          env.message.thumbnailUrl || null,
         ]);
 
         const seenTags: { [k: string]: boolean } = {};
@@ -282,6 +284,7 @@ export default class PostgresAdapter {
           if (seenTags[tag]) {
             continue;
           }
+
           seenTags[tag] = true;
 
           await client.query(`
@@ -401,7 +404,8 @@ export default class PostgresAdapter {
     const client = _client || await this.pool.connect();
     const { rows } = await client.query(`
       SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-          p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
+          p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype,
+          p.video_url, p.thumbnail_url
       FROM posts p
                JOIN envelopes e ON p.envelope_id = e.id
       WHERE e.refhash = $1
@@ -481,6 +485,8 @@ export default class PostgresAdapter {
 
     if (row.message_subtype === 'L') {
       subtype = 'LINK';
+    } else if (row.message_subtype === 'VID') {
+      subtype = 'VIDEO';
     }
 
     const originalRefhash = await this.getOriginalPosterHash(row.refhash, _client);
@@ -505,6 +511,8 @@ export default class PostgresAdapter {
         row.pin_count,
         moderationType,
         subtype,
+        row.video_url,
+        row.thumbnail_url,
       ),
       null
     );
@@ -586,12 +594,142 @@ export default class PostgresAdapter {
     );
   };
 
-  getPosts = async (
+  getVideoPosts = async (
     order: 'ASC' | 'DESC' = 'DESC',
     limit= 20,
     defaultOffset?: number,
     extend: {follows?: string[]|null; blocks?: string[]|null} = {},
     override: {follows?: string[]|null; blocks?: string[]|null} = {},
+    topic?: string,
+    tld?: string,
+  ): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (limit <= 0) {
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+
+    const client = await this.pool.connect();
+
+    try {
+      const envelopes: DomainEnvelope<DomainPost>[] = [];
+      const offset = defaultOffset || 0;
+
+      const blocks = override.blocks === null
+        ? []
+        : override.blocks
+          ? override.blocks
+          : extend.blocks?.length
+            ? extend.blocks.concat([])
+            : [];
+
+      const follows = override.follows === null
+        ? []
+        : override.follows
+          ? override.follows
+          : extend.follows?.length
+            ? extend.follows.concat([])
+            : [];
+
+      let WHERE_STMT = '';
+      const SELECT_BLOCK = `
+            SELECT 1 FROM posts tp JOIN envelopes te ON e.id = te.id AND tp.envelope_id = te.id
+            LEFT JOIN connections block ON block.tld = te.tld AND block.connection_type = 'BLOCK'
+            INNER JOIN envelopes blockenv ON blockenv.id = block.envelope_id
+            AND blockenv.tld IN (${blocks.map(tld => `'${tld}'`).join(', ')})
+      `;
+      const SELECT_FOLLOW = `
+            SELECT 1 FROM posts sp JOIN envelopes se ON e.id = se.id AND sp.envelope_id = se.id 
+            LEFT JOIN connections follow ON follow.tld = se.tld AND follow.connection_type = 'FOLLOW'
+            INNER JOIN envelopes followenv ON followenv.id = follow.envelope_id
+            AND followenv.tld IN (${follows.map(tld => `'${tld}'`).join(', ')})
+      `;
+
+      if (follows.length && blocks.length) {
+        WHERE_STMT = `
+          WHERE EXISTS (
+            ${SELECT_FOLLOW}
+          )
+          AND NOT EXISTS (
+            ${SELECT_BLOCK}
+          )
+        `;
+      } else if (follows.length) {
+        WHERE_STMT = `
+          WHERE EXISTS (
+            ${SELECT_FOLLOW}
+          )
+        `;
+      } else if (blocks.length) {
+        WHERE_STMT = `
+          WHERE NOT EXISTS (
+            ${SELECT_BLOCK}
+          )
+        `;
+      } else {
+        WHERE_STMT = 'WHERE true'
+      }
+
+      const values: any[] = [
+        limit,
+        offset,
+      ];
+
+      // if (topic) {
+      //   values.push(topic);
+      // }
+      //
+      // if (tld) {
+      //   values.push(tld);
+      // }
+
+      const {rows} = await client.query(`
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, 
+            e.network_id, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, 
+            p.pin_count, e.type as message_type, e.subtype as message_subtype,
+            p.video_url, p.thumbnail_url
+        FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+        ${WHERE_STMT}
+        AND (
+          p.reference is NULL AND e.subtype = 'VID'
+          AND (${topic ? `p.topic = '${topic}'` : `p.topic NOT LIKE '.%' OR p.topic is NULL`})
+          AND (${tld ? `e.tld = '${tld}'` : `e.tld is NOT NULL`})
+        )
+        ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
+        LIMIT $1 OFFSET $2
+      `, values);
+
+      for (let i = 0; i < rows.length; i++) {
+        const post = await this.mapPost(rows[i], true, client);
+        if (post) {
+          envelopes.push(post);
+        }
+      }
+
+      client.release();
+
+      if (!envelopes.length) {
+        return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+      }
+
+      return new Pageable<DomainEnvelope<DomainPost>, number>(
+        envelopes,
+        envelopes.length + Number(offset),
+      );
+    } catch (e) {
+      logger.error('error getting comments', e);
+      client.release();
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+  };
+
+  getTimeline = async (
+    order: 'ASC' | 'DESC' = 'DESC',
+    limit= 20,
+    defaultOffset?: number,
+    extend: {follows?: string[]|null; blocks?: string[]|null} = {},
+    override: {follows?: string[]|null; blocks?: string[]|null} = {},
+    topic?: string,
+    tld?: string,
   ): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
     if (limit <= 0) {
       return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
@@ -660,10 +798,247 @@ export default class PostgresAdapter {
 
       const {rows} = await client.query(`
         SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
-            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype,
+            p.video_url, p.thumbnail_url
         FROM posts p JOIN envelopes e ON p.envelope_id = e.id
         ${WHERE_STMT}
-        AND (p.reference is NULL AND (p.topic NOT LIKE '.%' OR p.topic is NULL))
+        AND (
+          p.reference is NULL
+          AND (${topic ? `p.topic = '${topic}'` : `p.topic NOT LIKE '.%' OR p.topic is NULL`})
+          AND (${tld ? `e.tld = '${tld}'` : `e.tld is NOT NULL`})
+        )
+        ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
+        LIMIT $1 OFFSET $2
+    `, [
+        limit,
+        offset,
+      ]);
+
+      for (let i = 0; i < rows.length; i++) {
+        const post = await this.mapPost(rows[i], true, client);
+        if (post) {
+          envelopes.push(post);
+        }
+      }
+
+      client.release();
+
+      if (!envelopes.length) {
+        return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+      }
+
+      return new Pageable<DomainEnvelope<DomainPost>, number>(
+        envelopes,
+        envelopes.length + Number(offset),
+      );
+    } catch (e) {
+      logger.error('error getting comments', e);
+      client.release();
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+  };
+
+  getRegularPosts = async (
+    order: 'ASC' | 'DESC' = 'DESC',
+    limit= 20,
+    defaultOffset?: number,
+    extend: {follows?: string[]|null; blocks?: string[]|null} = {},
+    override: {follows?: string[]|null; blocks?: string[]|null} = {},
+    topic?: string,
+    tld?: string,
+  ): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (limit <= 0) {
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+
+    const client = await this.pool.connect();
+
+    try {
+      const envelopes: DomainEnvelope<DomainPost>[] = [];
+      const offset = defaultOffset || 0;
+
+      const blocks = override.blocks === null
+        ? []
+        : override.blocks
+          ? override.blocks
+          : extend.blocks?.length
+            ? extend.blocks.concat([])
+            : [];
+
+      const follows = override.follows === null
+        ? []
+        : override.follows
+          ? override.follows
+          : extend.follows?.length
+            ? extend.follows.concat([])
+            : [];
+
+      let WHERE_STMT = '';
+      const SELECT_BLOCK = `
+            SELECT 1 FROM posts tp JOIN envelopes te ON e.id = te.id AND tp.envelope_id = te.id
+            LEFT JOIN connections block ON block.tld = te.tld AND block.connection_type = 'BLOCK'
+            INNER JOIN envelopes blockenv ON blockenv.id = block.envelope_id
+            AND blockenv.tld IN (${blocks.map(tld => `'${tld}'`).join(', ')})
+      `;
+      const SELECT_FOLLOW = `
+            SELECT 1 FROM posts sp JOIN envelopes se ON e.id = se.id AND sp.envelope_id = se.id 
+            LEFT JOIN connections follow ON follow.tld = se.tld AND follow.connection_type = 'FOLLOW'
+            INNER JOIN envelopes followenv ON followenv.id = follow.envelope_id
+            AND followenv.tld IN (${follows.map(tld => `'${tld}'`).join(', ')})
+      `;
+
+      if (follows.length && blocks.length) {
+        WHERE_STMT = `
+          WHERE EXISTS (
+            ${SELECT_FOLLOW}
+          )
+          AND NOT EXISTS (
+            ${SELECT_BLOCK}
+          )
+        `;
+      } else if (follows.length) {
+        WHERE_STMT = `
+          WHERE EXISTS (
+            ${SELECT_FOLLOW}
+          )
+        `;
+      } else if (blocks.length) {
+        WHERE_STMT = `
+          WHERE NOT EXISTS (
+            ${SELECT_BLOCK}
+          )
+        `;
+      } else {
+        WHERE_STMT = 'WHERE true'
+      }
+
+      const {rows} = await client.query(`
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype,
+            p.video_url, p.thumbnail_url
+        FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+        ${WHERE_STMT}
+        AND (
+          p.reference is NULL AND e.subtype != 'VID'
+          AND (${topic ? `p.topic = '${topic}'` : `p.topic NOT LIKE '.%' OR p.topic is NULL`})
+          AND (${tld ? `e.tld = '${tld}'` : `e.tld is NOT NULL`})
+        )
+        ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
+        LIMIT $1 OFFSET $2
+    `, [
+        limit,
+        offset,
+      ]);
+
+      for (let i = 0; i < rows.length; i++) {
+        const post = await this.mapPost(rows[i], true, client);
+        if (post) {
+          envelopes.push(post);
+        }
+      }
+
+      client.release();
+
+      if (!envelopes.length) {
+        return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+      }
+
+      return new Pageable<DomainEnvelope<DomainPost>, number>(
+        envelopes,
+        envelopes.length + Number(offset),
+      );
+    } catch (e) {
+      logger.error('error getting comments', e);
+      client.release();
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+  };
+
+  getPosts = async (
+    order: 'ASC' | 'DESC' = 'DESC',
+    limit= 20,
+    defaultOffset?: number,
+    extend: {follows?: string[]|null; blocks?: string[]|null} = {},
+    override: {follows?: string[]|null; blocks?: string[]|null} = {},
+    topic?: string,
+    tld?: string,
+  ): Promise<Pageable<DomainEnvelope<DomainPost>, number>> => {
+    if (limit <= 0) {
+      return new Pageable<DomainEnvelope<DomainPost>, number>([], -1);
+    }
+
+    const client = await this.pool.connect();
+
+    try {
+      const envelopes: DomainEnvelope<DomainPost>[] = [];
+      const offset = defaultOffset || 0;
+
+      const blocks = override.blocks === null
+        ? []
+        : override.blocks
+          ? override.blocks
+          : extend.blocks?.length
+            ? extend.blocks.concat([])
+            : [];
+
+      const follows = override.follows === null
+        ? []
+        : override.follows
+          ? override.follows
+          : extend.follows?.length
+            ? extend.follows.concat([])
+            : [];
+
+      let WHERE_STMT = '';
+      const SELECT_BLOCK = `
+            SELECT 1 FROM posts tp JOIN envelopes te ON e.id = te.id AND tp.envelope_id = te.id
+            LEFT JOIN connections block ON block.tld = te.tld AND block.connection_type = 'BLOCK'
+            INNER JOIN envelopes blockenv ON blockenv.id = block.envelope_id
+            AND blockenv.tld IN (${blocks.map(tld => `'${tld}'`).join(', ')})
+      `;
+      const SELECT_FOLLOW = `
+            SELECT 1 FROM posts sp JOIN envelopes se ON e.id = se.id AND sp.envelope_id = se.id 
+            LEFT JOIN connections follow ON follow.tld = se.tld AND follow.connection_type = 'FOLLOW'
+            INNER JOIN envelopes followenv ON followenv.id = follow.envelope_id
+            AND followenv.tld IN (${follows.map(tld => `'${tld}'`).join(', ')})
+      `;
+
+      if (follows.length && blocks.length) {
+        WHERE_STMT = `
+          WHERE EXISTS (
+            ${SELECT_FOLLOW}
+          )
+          AND NOT EXISTS (
+            ${SELECT_BLOCK}
+          )
+        `;
+      } else if (follows.length) {
+        WHERE_STMT = `
+          WHERE EXISTS (
+            ${SELECT_FOLLOW}
+          )
+        `;
+      } else if (blocks.length) {
+        WHERE_STMT = `
+          WHERE NOT EXISTS (
+            ${SELECT_BLOCK}
+          )
+        `;
+      } else {
+        WHERE_STMT = 'WHERE true'
+      }
+
+      const {rows} = await client.query(`
+        SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
+            p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype,
+            p.video_url, p.thumbnail_url
+        FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+        ${WHERE_STMT}
+        AND (
+          p.reference is NULL
+          AND (${topic ? `p.topic = '${topic}'` : `p.topic NOT LIKE '.%' OR p.topic is NULL`})
+          AND (${tld ? `e.tld = '${tld}'` : `e.tld is NOT NULL`})
+        )
         ORDER BY e.created_at ${order === 'ASC' ? 'ASC' : 'DESC'}
         LIMIT $1 OFFSET $2
     `, [
@@ -1693,7 +2068,7 @@ export default class PostgresAdapter {
     const {rows} = await client.query(`
       SELECT e.id as envelope_id, p.id as post_id, e.tld, e.subdomain, e.network_id, e.refhash, e.created_at, p.body,
               p.title, p.reference, p.topic, p.reply_count, p.like_count, p.pin_count, e.type as message_type, e.subtype as message_subtype
-      FROM posts p JOIN envelopes e ON p.envelope_id = e.id
+      FROM posts p JOIN envelopes e ON p.envelope_id = e.id AND e.subtype != 'VID'
       WHERE e.tld = $1
     `, [ tld ]);
 

@@ -24,6 +24,8 @@ export type PostBody = {
   title?: string | null;
   reference?: string | null;
   topic?: string | null;
+  videoUrl?: string;
+  thumbnailUrl?: string;
   tags: string[];
 }
 export type ConnectionBody = {
