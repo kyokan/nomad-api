@@ -10,7 +10,6 @@ const appDataPath = process.cwd();
 const fndHome = path.join(appDataPath, 'build', '.fnd');
 const fndPath = path.join(appDataPath, 'build', 'fnd');
 
-console.log(appDataPath, fndHome, fndPath)
 const LOG_LEVEL_LINE = 14;
 const MONIKER_LINE = 20;
 const HEARTBEAT_LINE = 22;
@@ -45,8 +44,7 @@ export class FNDController {
     await this.copyBinary();
     // eslint-disable-next-line no-console
     console.log('copied binary');
-    const cmd = path.join(appDataPath, 'fnd');
-    await new Promise((resolve, reject) => execFile(cmd, ['init', '--home', fndHome], async (err, stdout, stderr) => {
+    await new Promise((resolve, reject) => execFile(fndPath, ['init', '--home', fndHome], async (err, stdout, stderr) => {
       if (err) {
         reject(err);
       }
