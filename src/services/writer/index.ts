@@ -11,7 +11,7 @@ import bodyParser from "body-parser";
 import {makeResponse} from "../../util/rest";
 import {createRefhash} from 'fn-client/lib/wire/refhash';
 import logger from "../../util/logger";
-import {trackAttempt} from "../../util/matomo";
+import {trackAttempt} from "../../util/mixpanel";
 import {SubdomainDBRow, SubdomainManager} from "../subdomains";
 import {createEnvelope, mapBodyToEnvelope} from "../../util/envelope";
 import {BufferedReader} from "fn-client/lib/io/BufferedReader";
