@@ -105,6 +105,8 @@ export class Writer {
 
         const {sealedHash, txId} = await this.preCommit(tld, envelope, offset, createdAt, truncate);
 
+        trackAttempt('Precommit Blob', req, { name: tld });
+
         res.send(makeResponse({
           sealedHash: sealedHash.toString('hex'),
           envelope,
@@ -176,6 +178,8 @@ export class Writer {
           sig,
           truncate,
         );
+
+        trackAttempt('Commit Blob', req, { name: tld });
 
         if (envelope && !truncate) {
           await this.indexer.insertPost(tld, envelope);
@@ -373,8 +377,6 @@ export class Writer {
     }
 
     const res = await this.client.commit(txId, date, Buffer.from(sig, 'hex'), true);
-
-
     return res;
   }
 
@@ -397,8 +399,7 @@ export class Writer {
           .send(makeResponse('invalid tld', true));
       }
 
-      trackAttempt('reformat blob', req, blobName);
-
+      trackAttempt('reformat blob', req, { name: blobName });
       try {
         await this.reconstructBlob(blobName, undefined, broadcast, source);
         return res.send(makeResponse('ok'));
@@ -409,14 +410,15 @@ export class Writer {
     });
 
     app.post(`/relayer/precommit`, jsonParser, async (req, res) => {
-      trackAttempt('Precommit Blob', req);
       return this.handlers['/relayer/precommit'](req, res);
     });
 
     app.get('/blob/:blobName/info', async (req, res) => {
       const blobName = req.params.blobName;
 
-      trackAttempt('Get Blob Info', req, blobName);
+      trackAttempt('Get Blob Info', req, {
+        name: blobName,
+      });
 
       try {
         const info = await this.client.getBlobInfo(blobName);
@@ -439,7 +441,6 @@ export class Writer {
     });
 
     app.post(`/relayer/commit`, jsonParser, async (req, res) => {
-      trackAttempt('Commit Blob', req);
       return this.handlers['/relayer/commit'](req, res);
     });
   }

@@ -10,7 +10,7 @@ const mixpanel = token
   ? Mixpanel.init(token as string)
   : null;
 
-export function trackAttempt(namespace: string, req: Request, params = {}) {
+export function trackAttempt(namespace: string, req: Request, params: object = {}) {
   try {
     if (!mixpanel) return;
 

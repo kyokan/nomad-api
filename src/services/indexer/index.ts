@@ -378,20 +378,6 @@ export class IndexerManager {
       res.send(makeResponse(hash));
     },
 
-    '/users/:username/channels': async (req: Request, res: Response) => {
-      trackAttempt('Get User Channels', req, req.params.username);
-      const { order, limit, offset } = req.query as any || {};
-      const posts = await this.getUserChannels(req.params.username, order, limit, offset);
-      res.send(makeResponse(posts));
-    },
-
-    '/channels': async (req: Request, res: Response) => {
-      trackAttempt('Get Channels', req);
-      const { order, limit, offset } = req.query as any || {};
-      const posts = await this.getChannels(order, limit, offset);
-      res.send(makeResponse(posts));
-    },
-
     '/avatars/:sprite/:seed.svg': async (req: Request, res: Response) => {
       try {
         const { sprite, seed } = req.params;
