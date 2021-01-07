@@ -170,7 +170,9 @@ export class IndexerManager {
 
     '/posts/:hash': async (req: Request, res: Response) =>  {
       try {
-        trackAttempt('Get One Post', req, req.params.hash);
+        trackAttempt('Get One Post', req, {
+          refhash: req.params.hash,
+        });
         const post = await this.getPostByHash(req.params.hash);
         res.send(makeResponse(post));
       } catch (e) {
@@ -179,7 +181,9 @@ export class IndexerManager {
     },
 
     '/posts/:hash/comments': async (req: Request, res: Response) =>  {
-      trackAttempt('Get Post Comments', req, req.params.hash);
+      trackAttempt('Get Post Comments', req, {
+        refhash: req.params.hash,
+      });
       const {
         extendBlockSrc,
         extendFollowSrc,
@@ -230,7 +234,9 @@ export class IndexerManager {
     },
 
     '/users/:username/timeline': async (req: Request, res: Response) => {
-      trackAttempt('Get Timeline by User', req, req.params.username);
+      trackAttempt('Get Timeline by User', req, {
+        name: req.params.username,
+      });
       const { order, limit, offset } = req.query as any || {};
       const {tld, subdomain} = parseUsername(req.params.username);
 
@@ -242,7 +248,9 @@ export class IndexerManager {
     },
 
     '/users/:username/posts': async (req: Request, res: Response) => {
-      trackAttempt('Get Posts by User', req, req.params.username);
+      trackAttempt('Get Posts by User', req, {
+        name: req.params.username,
+      });
       try {
         const {
           extendBlockSrc,
@@ -273,7 +281,9 @@ export class IndexerManager {
     },
 
     '/users/:username/videos': async (req: Request, res: Response) => {
-      trackAttempt('Get Videos by User', req, req.params.username);
+      trackAttempt('Get Videos by User', req, {
+        name: req.params.username,
+      });
       try {
         const {
           extendBlockSrc,
@@ -304,7 +314,9 @@ export class IndexerManager {
     },
 
     '/users/:username/likes': async (req: Request, res: Response) => {
-      trackAttempt('Get Likes by User', req, req.params.username);
+      trackAttempt('Get Likes by User', req, {
+        name: req.params.username,
+      });
       const { order, limit, offset } = req.query as any || {};
       const {tld, subdomain} = parseUsername(req.params.username);
       const posts = await this.getPostsByFilter(extendFilter({
@@ -314,7 +326,9 @@ export class IndexerManager {
     },
 
     '/users/:username/comments': async (req: Request, res: Response) => {
-      trackAttempt('Get Comments by User', req, req.params.username);
+      trackAttempt('Get Comments by User', req, {
+        name: req.params.username,
+      });
       const { order, limit, offset } = req.query as any || {};
       const {tld, subdomain} = parseUsername(req.params.username);
       const posts = await this.getPostsByFilter(extendFilter({
@@ -324,21 +338,27 @@ export class IndexerManager {
     },
 
     '/users/:username/followees': async (req: Request, res: Response) => {
-      trackAttempt('Get Followees by User', req, req.params.username);
+      trackAttempt('Get Followees by User', req, {
+        name: req.params.username,
+      });
       const { order, limit, offset } = req.query as any || {};
       const posts = await this.getUserFollowings(req.params.username, order, limit, offset);
       res.send(makeResponse(posts));
     },
 
     '/users/:username/followers': async (req: Request, res: Response) => {
-      trackAttempt('Get Followers by User', req, req.params.username);
+      trackAttempt('Get Followers by User', req, {
+        name: req.params.username,
+      });
       const { order, limit, offset } = req.query as any || {};
       const posts = await this.getUserFollowers(req.params.username, order, limit, offset);
       res.send(makeResponse(posts));
     },
 
     '/users/:username/blockees': async (req: Request, res: Response) => {
-      trackAttempt('Get Blockees by User', req, req.params.username);
+      trackAttempt('Get Blockees by User', req, {
+        name: req.params.username,
+      });
       const { order, limit, offset } = req.query as any || {};
       const posts = await this.getUserBlocks(req.params.username, order, limit, offset);
       res.send(makeResponse(posts));
@@ -352,7 +372,9 @@ export class IndexerManager {
     // },
 
     '/users/:username/profile': async (req: Request, res: Response) => {
-      trackAttempt('Get User Profile', req, req.params.username);
+      trackAttempt('Get User Profile', req, {
+        name: req.params.username,
+      });
       const hash = await this.getUserProfile(req.params.username);
       res.send(makeResponse(hash));
     },

@@ -6,9 +6,9 @@ import logger from "../../util/logger";
 import {dirExists} from "../../util/fs";
 import {dotName} from "../../util/user";
 import {getConfig} from "../../util/config";
-const appDataPath = './build';
-const fndHome = path.join(appDataPath, '.fnd');
-const fndPath = path.join(appDataPath, 'fnd');
+const appDataPath = process.cwd();
+const fndHome = path.join(appDataPath, 'build', '.fnd');
+const fndPath = path.join(appDataPath, 'build', 'fnd');
 
 const LOG_LEVEL_LINE = 14;
 const MONIKER_LINE = 20;
