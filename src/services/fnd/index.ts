@@ -10,6 +10,7 @@ const appDataPath = process.cwd();
 const fndHome = path.join(appDataPath, 'build', '.fnd');
 const fndPath = path.join(appDataPath, 'build', 'fnd');
 
+console.log(appDataPath, fndHome, fndPath)
 const LOG_LEVEL_LINE = 14;
 const MONIKER_LINE = 20;
 const HEARTBEAT_LINE = 22;
