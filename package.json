@@ -77,7 +77,7 @@
     "@dicebear/avatars-jdenticon-sprites": "^4.0.5",
     "@dicebear/avatars-male-sprites": "^4.0.5",
     "@types/secp256k1": "^4.0.1",
-    "bcrypt": "^4.0.1",
+    "bcrypt": "^5.0.0",
     "better-sqlite3": "^5.4.3",
     "binstring": "^0.2.1",
     "bl": "^4.0.2",
