@@ -51,7 +51,7 @@
     "image-webpack-loader": "^6.0.0",
     "marked": "^0.8.2",
     "node-loader": "^0.6.0",
-    "node-sass": "^4.13.0",
+    "node-sass": "^7.0.0",
     "nodemon": "^2.0.2",
     "raw-loader": "^4.0.0",
     "react": "^16.13.1",
